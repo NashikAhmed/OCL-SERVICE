@@ -63,6 +63,7 @@ interface Admin {
     userManagement: boolean;
     pincodeManagement: boolean;
     addressForms: boolean;
+    corporateRegistration: boolean;
     reports: boolean;
     settings: boolean;
   };
@@ -114,6 +115,7 @@ const AdminManagement = () => {
     userManagement: false,
     pincodeManagement: false,
     addressForms: false,
+    corporateRegistration: false,
     reports: false,
     settings: false
   });

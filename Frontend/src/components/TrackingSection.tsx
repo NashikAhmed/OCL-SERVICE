@@ -18,7 +18,7 @@ const TrackingSection = () => {
   
   // Demo tracking data
   const demoTrackingData = {
-    trackingNumber: "DX123456789",
+    trackingNumber: "871026572",
     status: "In Transit",
     estimatedDelivery: "Dec 25, 2024",
     currentLocation: "Mumbai Distribution Center",
@@ -178,7 +178,7 @@ const TrackingSection = () => {
                   <div className="space-y-3">
                     <Input
                       type="text"
-                      placeholder="Enter tracking number (e.g., DX123456789)"
+                      placeholder="Enter consignment number (e.g., 871026572)"
                       value={trackingNumber}
                       onChange={(e) => setTrackingNumber(e.target.value)}
                       className="w-full px-4 py-3 bg-gray-50/50 border-0 rounded-xl shadow-inner focus:shadow-lg focus:bg-white transition-all duration-300 text-gray-800 placeholder-gray-500"
@@ -205,9 +205,9 @@ const TrackingSection = () => {
                   <p className="text-xs text-gray-500 text-center">
                     Try demo: <span 
                       className="font-mono text-blue-600 cursor-pointer hover:text-blue-800 transition-colors" 
-                      onClick={() => setTrackingNumber("DX123456789")}
+                      onClick={() => setTrackingNumber("871026572")}
                     >
-                      DX123456789
+                      871026572
                     </span>
                   </p>
                 </form>

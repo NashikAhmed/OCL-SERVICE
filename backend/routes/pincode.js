@@ -29,12 +29,12 @@ const findPincode = async (pincode) => {
   const startTime = Date.now();
   
   try {
-    // Find all serviceable records matching the pincode
+    // Find only serviceable records matching the pincode
     const records = await PinCodeArea.find({ 
-        pincode: parseInt(pincode), 
-        serviceable: true 
+        pincode: parseInt(pincode),
+        serviceable: true
       })
-      .select('cityname areaname distrcitname statename serviceable')
+      .select('cityname areaname distrcitname statename serviceable bulkOrder priority standard')
       .lean(); // Use lean() for better performance
     
     const endTime = Date.now();
@@ -43,7 +43,10 @@ const findPincode = async (pincode) => {
       // Group areas by city and district
       const result = {
         state: records[0].statename,
-        cities: {}
+        cities: {},
+        bulkOrderAvailable: records.some(record => record.bulkOrder),
+        priorityAvailable: records.some(record => record.priority),
+        standardAvailable: records.some(record => record.standard)
       };
       
       // Group by city, then by district
@@ -64,10 +67,11 @@ const findPincode = async (pincode) => {
           };
         }
         
-        // Add area if not already present (simplified - just name)
+        // Add area if not already present
         if (!result.cities[city].districts[district].areas.some(a => a.name === area)) {
           result.cities[city].districts[district].areas.push({
-            name: area
+            name: area,
+            bulkOrder: Boolean(record.bulkOrder)
           });
         }
       });
@@ -132,6 +136,7 @@ router.get("/:pin", async (req, res) => {
       cities: result.cities,
       totalAreas: totalAreas,
       totalCities: Object.keys(result.cities).length,
+      bulkOrderAvailable: result.bulkOrderAvailable,
       responseTime: `${responseTime}ms`,
       cached: pincodeCache.has(pin)
     });
@@ -176,6 +181,7 @@ router.get("/:pin/simple", async (req, res) => {
       district: firstDistrict,
       areas: areas,
       totalOffices: areas.length,
+      bulkOrderAvailable: result.bulkOrderAvailable,
       responseTime: `${responseTime}ms`,
       cached: pincodeCache.has(pin)
     });
@@ -224,6 +230,56 @@ router.get("/cache/info", (req, res) => {
     totalCached: cachedPincodes.length,
     searchStats: searchStats
   });
+});
+
+// GET city suggestions for autocomplete
+router.get("/cities/suggestions", async (req, res) => {
+  try {
+    const query = req.query.q || '';
+    const limit = parseInt(req.query.limit) || 5;
+    
+    if (!query || query.length < 1) {
+      return res.json({ cities: [] });
+    }
+    
+    // Search for cities that match the query (only serviceable)
+    const cities = await PinCodeArea.aggregate([
+      {
+        $match: {
+          cityname: { $regex: query, $options: 'i' },
+          serviceable: true
+        }
+      },
+      {
+        $group: {
+          _id: '$cityname',
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          city: '$_id',
+          count: 1
+        }
+      },
+      {
+        $sort: { 
+          count: -1, // Sort by frequency first
+          city: 1    // Then alphabetically
+        }
+      },
+      {
+        $limit: limit
+      }
+    ]);
+    
+    res.json({ cities });
+    
+  } catch (error) {
+    console.error('Error fetching city suggestions:', error);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 export default router;

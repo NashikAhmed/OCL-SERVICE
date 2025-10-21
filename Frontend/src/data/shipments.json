@@ -1,7 +1,7 @@
 {
   "shipments": {
-    "DXB001234": {
-      "awb": "DXB001234",
+    "871026572": {
+      "awb": "871026572",
       "status": "Delivered",
       "origin": "Dubai, UAE",
       "destination": "Mumbai, India",
@@ -48,8 +48,8 @@
         }
       ]
     },
-    "DXB001235": {
-      "awb": "DXB001235",
+    "871026573": {
+      "awb": "871026573",
       "status": "In Transit",
       "origin": "Mumbai, India",
       "destination": "London, UK",
@@ -77,8 +77,8 @@
         }
       ]
     },
-    "DXB001236": {
-      "awb": "DXB001236",
+    "871026574": {
+      "awb": "871026574",
       "status": "Processing",
       "origin": "London, UK",
       "destination": "New York, USA",

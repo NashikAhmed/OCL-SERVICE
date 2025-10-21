@@ -150,8 +150,9 @@ const ImageUploadWithPreview: React.FC<ImageUploadWithPreviewProps> = ({
   };
 
   const getImageUrl = (fileObj: UploadedFile) => {
+    const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:5000';
     if (fileObj.uploaded && fileObj.serverPath) {
-      return `http://localhost:5000/api/upload/serve/${fileObj.serverPath}`;
+      return `${API_BASE}/api/upload/serve/${fileObj.serverPath}`;
     }
     return fileObj.preview;
   };

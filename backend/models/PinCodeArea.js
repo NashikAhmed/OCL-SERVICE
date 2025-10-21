@@ -31,10 +31,36 @@ const pinCodeAreaSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  bulkOrder: {
+    type: Boolean,
+    default: false
+  },
+  priority: {
+    type: Boolean,
+    default: false
+  },
+  standard: {
+    type: Boolean,
+    default: false
+  },
   delivery: {
     type: String,
     enum: ['Delivery', 'Non-Delivery'],
     default: 'Delivery'
+  },
+  modes: {
+    byAir: {
+      type: Boolean,
+      default: false
+    },
+    byTrain: {
+      type: Boolean,
+      default: false
+    },
+    byRoad: {
+      type: Boolean,
+      default: false
+    }
   }
 }, {
   timestamps: false, // Since this is reference data, we don't need timestamps
@@ -46,6 +72,14 @@ pinCodeAreaSchema.index({ pincode: 1 }); // Primary search index
 pinCodeAreaSchema.index({ pincode: 1, cityname: 1 }); // Compound index
 pinCodeAreaSchema.index({ statename: 1 }); // State-wise queries
 pinCodeAreaSchema.index({ cityname: 1 }); // City-wise queries
+pinCodeAreaSchema.index({ serviceable: 1 }); // Serviceable queries
+pinCodeAreaSchema.index({ bulkOrder: 1 }); // Bulk order queries
+pinCodeAreaSchema.index({ priority: 1 }); // Priority queries
+pinCodeAreaSchema.index({ standard: 1 }); // Standard queries
+pinCodeAreaSchema.index({ pincode: 1, serviceable: 1, bulkOrder: 1, priority: 1, standard: 1 }); // Combined serviceability index
+pinCodeAreaSchema.index({ 'modes.byAir': 1 }); // Air mode queries
+pinCodeAreaSchema.index({ 'modes.byTrain': 1 }); // Train mode queries
+pinCodeAreaSchema.index({ 'modes.byRoad': 1 }); // Road mode queries
 
 // Static method to find areas by pincode with grouping
 pinCodeAreaSchema.statics.findByPincodeGrouped = function(pincode) {

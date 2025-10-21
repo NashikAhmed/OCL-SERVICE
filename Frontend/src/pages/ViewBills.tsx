@@ -82,12 +82,39 @@ const ViewBills = () => {
     setFilteredInvoices(filtered);
   }, [invoices, searchTerm, statusFilter, dateFilter]);
 
-  const handleDownload = (invoiceId: string) => {
-    // TODO: Replace with actual PDF download
-    toast({
-      title: "Download Started",
-      description: `Downloading invoice ${invoiceId}...`,
-    });
+  const handleDownload = async (invoiceId: string) => {
+    try {
+      const response = await fetch(`/api/invoice-pdf/${invoiceId}/pdf`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('corporateToken')}`
+        }
+      });
+      
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `invoice-${invoiceId}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        
+        toast({
+          title: "Download Started",
+          description: `Downloading invoice ${invoiceId}...`,
+        });
+      } else {
+        throw new Error('Failed to generate invoice');
+      }
+    } catch (error) {
+      toast({
+        title: "Download Failed",
+        description: "Failed to download invoice",
+        variant: "destructive"
+      });
+    }
   };
 
   const getStatusColor = (status: string) => {

@@ -1,27 +1,33 @@
 import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Activity } from 'lucide-react';
+import { isAdminLoggedIn, clearAuthData } from '@/utils/auth';
 
 interface AdminProtectedRouteProps {
   children: React.ReactNode;
 }
 
 const AdminProtectedRoute: React.FC<AdminProtectedRouteProps> = ({ children }) => {
+  console.log('AdminProtectedRoute component rendering...');
+  
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
     const checkAuth = async () => {
-      const token = localStorage.getItem('adminToken');
-      const adminInfo = localStorage.getItem('adminInfo');
+      console.log('Checking authentication...');
       
-      if (!token || !adminInfo) {
+      if (!isAdminLoggedIn()) {
+        console.log('Not logged in or token expired, redirecting to login');
+        clearAuthData();
         setIsAuthenticated(false);
         setIsLoading(false);
         return;
       }
 
       try {
+        console.log('Verifying token with backend...');
+        const token = localStorage.getItem('adminToken');
         // Verify token with backend
         const response = await fetch('/api/admin/profile', {
           headers: {
@@ -29,18 +35,19 @@ const AdminProtectedRoute: React.FC<AdminProtectedRouteProps> = ({ children }) =
           },
         });
 
+        console.log('Auth response status:', response.status);
+        
         if (response.ok) {
+          console.log('Authentication successful');
           setIsAuthenticated(true);
         } else {
-          // Token is invalid, clear storage
-          localStorage.removeItem('adminToken');
-          localStorage.removeItem('adminInfo');
+          console.log('Authentication failed, clearing storage');
+          clearAuthData();
           setIsAuthenticated(false);
         }
       } catch (error) {
         console.error('Auth check failed:', error);
-        localStorage.removeItem('adminToken');
-        localStorage.removeItem('adminInfo');
+        clearAuthData();
         setIsAuthenticated(false);
       } finally {
         setIsLoading(false);
@@ -50,7 +57,10 @@ const AdminProtectedRoute: React.FC<AdminProtectedRouteProps> = ({ children }) =
     checkAuth();
   }, []);
 
+  console.log('AdminProtectedRoute render - isLoading:', isLoading, 'isAuthenticated:', isAuthenticated);
+  
   if (isLoading) {
+    console.log('Showing loading state');
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -62,9 +72,11 @@ const AdminProtectedRoute: React.FC<AdminProtectedRouteProps> = ({ children }) =
   }
 
   if (!isAuthenticated) {
+    console.log('Not authenticated, redirecting to login');
     return <Navigate to="/admin" replace />;
   }
 
+  console.log('Authenticated, rendering children');
   return <>{children}</>;
 };
 

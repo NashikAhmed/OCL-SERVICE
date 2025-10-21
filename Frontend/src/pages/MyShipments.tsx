@@ -30,7 +30,7 @@ const MyShipments = () => {
   const shipments: Shipment[] = [
     {
       id: "1",
-      trackingNumber: "OCL240001234",
+      trackingNumber: "871026572",
       recipientName: "John Doe",
       destination: "Mumbai, MH",
       status: "delivered",
@@ -42,7 +42,7 @@ const MyShipments = () => {
     },
     {
       id: "2", 
-      trackingNumber: "OCL240001235",
+      trackingNumber: "871026573",
       recipientName: "Jane Smith",
       destination: "Delhi, DL",
       status: "in-transit",
@@ -54,7 +54,7 @@ const MyShipments = () => {
     },
     {
       id: "3",
-      trackingNumber: "OCL240001236", 
+      trackingNumber: "871026574", 
       recipientName: "Mike Johnson",
       destination: "Bangalore, KA",
       status: "pending",

@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Hide scrollbar utility */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* Internet Explorer 10+ */
+  scrollbar-width: none;  /* Firefox */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Safari and Chrome */
+}
+
 /* OCL SERVICES Design System - Minimalist Flat Design with Two-Section Navigation */
 
 @layer base {
@@ -24,7 +33,7 @@
     --destructive-foreground: 210 40% 98%;
     --border: 198 68% 18%;
     --input: 0 0% 90%;
-    --ring: 198 68% 18%;
+    --ring: 220 45% 55%;
     --chart-1: 12 76% 61%;
     --chart-2: 173 58% 39%;
     --chart-3: 197 37% 24%;
@@ -281,4 +290,34 @@
     background: #800000;
     color: white;
   }
+}
+
+
+.coloader-registration-box-main
+{
+  box-shadow: rgba(14, 30, 37, 0.12) 0px 2px 4px 0px, rgba(14, 30, 37, 0.32) 0px 2px 16px 0px;
+  padding: 20px;
+  border-radius: 10px;
+}
+
+.corporate-registration-box-main {
+  box-shadow: rgba(14, 30, 37, 0.12) 0px 2px 4px 0px, rgba(14, 30, 37, 0.32) 0px 2px 16px 0px;
+  padding: 20px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(248, 250, 252, 0.8));
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  position: relative;
+  overflow: hidden;
+}
+
+.corporate-registration-box-main::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, #3b82f6, #6366f1, #8b5cf6, #06b6d4);
+  border-radius: 20px 20px 0 0;
 }

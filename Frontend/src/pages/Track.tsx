@@ -41,24 +41,46 @@ const Track = () => {
     setIsLoading(true);
     setHasSearched(true);
     
-    // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
     try {
-      // TODO: Replace with Supabase call
-      // const response = await fetch(`/api/track?awb=${awbs.join(',')}`);
-      
       const foundShipments: Shipment[] = [];
       const notFoundAwbs: string[] = [];
       
-      awbs.forEach(awb => {
-        const shipment = (shipmentsData.shipments as any)[awb];
-        if (shipment) {
-          foundShipments.push(shipment);
-        } else {
-          notFoundAwbs.push(awb);
+      // Track each consignment number
+      for (const awb of awbs) {
+        try {
+          const response = await fetch(`/api/corporate/track/${awb}`);
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+              // Transform the API response to match the expected format
+              const shipment: Shipment = {
+                awb: data.data.consignmentNumber.toString(),
+                status: data.data.status,
+                origin: `${data.data.bookingData.originData.city}, ${data.data.bookingData.originData.state}`,
+                destination: `${data.data.bookingData.destinationData.city}, ${data.data.bookingData.destinationData.state}`,
+                estimatedDelivery: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days from now
+                weight: data.data.bookingData.shipmentData.actualWeight,
+                service: data.data.bookingData.shipmentData.services,
+                timeline: data.data.timeline
+              };
+              foundShipments.push(shipment);
+            } else {
+              notFoundAwbs.push(awb);
+            }
+          } else {
+            notFoundAwbs.push(awb);
+          }
+        } catch (apiError) {
+          // Fallback to mock data for demo purposes
+          const shipment = (shipmentsData.shipments as any)[awb];
+          if (shipment) {
+            foundShipments.push(shipment);
+          } else {
+            notFoundAwbs.push(awb);
+          }
         }
-      });
+      }
       
       setResults(foundShipments);
       setNotFound(notFoundAwbs);
@@ -95,7 +117,7 @@ const Track = () => {
                 Track & Trace
               </h1>
               <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-6">
-                Enter your AWB number below to track your package in real-time. 
+                Enter your consignment number below to track your package in real-time. 
                 Get detailed updates on your shipment's journey from pickup to delivery.
               </p>
             </div>
@@ -169,7 +191,7 @@ const Track = () => {
                         <div className="flex items-center gap-3 mb-4">
                           <AlertCircle className="w-6 h-6 text-warning" />
                           <h3 className="text-lg font-semibold">
-                            AWB Numbers Not Found
+                            Consignment Numbers Not Found
                           </h3>
                         </div>
                         
@@ -190,12 +212,12 @@ const Track = () => {
                             <strong>Possible reasons:</strong>
                           </p>
                           <ul className="list-disc list-inside space-y-1">
-                            <li>AWB number might be incorrect or incomplete</li>
+                            <li>Consignment number might be incorrect or incomplete</li>
                             <li>Package might not be in our system yet</li>
                             <li>There might be a delay in data synchronization</li>
                           </ul>
                           <p className="mt-3">
-                            <strong>Try:</strong> Double-check the AWB number or contact our support team.
+                            <strong>Try:</strong> Double-check the consignment number or contact our support team.
                           </p>
                         </div>
                       </CardContent>
@@ -215,7 +237,7 @@ const Track = () => {
                         <Package className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
                         <h3 className="text-lg font-semibold mb-2">No Results Found</h3>
                         <p className="text-muted-foreground">
-                          Please check your AWB number and try again.
+                          Please check your consignment number and try again.
                         </p>
                       </CardContent>
                     </Card>

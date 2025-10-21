@@ -39,18 +39,27 @@ import OfficeDashboard from "./pages/office/OfficeDashboard";
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminProtectedRoute from "./components/admin/AdminProtectedRoute";
+import PricingApproval from "./pages/PricingApproval";
+import CorporateLogin from "./pages/auth/CorporateLogin";
+import CorporateChangePassword from "./pages/auth/CorporateChangePassword";
+import CorporateDashboard from "./pages/corporate/CorporateDashboard";
+import CorporateProtectedRoute from "./components/CorporateProtectedRoute";
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID}>
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-        <GlobalStickyTabs>
-          <Routes>
+const App = () => {
+  console.log('App component rendering...');
+  console.log('Google Client ID:', import.meta.env.VITE_GOOGLE_CLIENT_ID);
+  
+  return (
+    <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || 'test-client-id'}>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+          <GlobalStickyTabs>
+            <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/track" element={<Track />} />
           <Route path="/track/whatsapp" element={<TrackWhatsApp />} />
@@ -79,6 +88,10 @@ const App = () => (
           <Route path="/support/contact" element={<ContactOCL />} />
           <Route path="/support/write" element={<WriteToUs />} />
           
+          {/* Public Pricing Approval Routes */}
+          <Route path="/pricing-approval/:token" element={<PricingApproval />} />
+          <Route path="/pricing-approval/:token/:action" element={<PricingApproval />} />
+          
           {/* Office/Staff Portal Routes */}
           <Route path="/office" element={<OfficeLogin />} />
           <Route 
@@ -101,14 +114,34 @@ const App = () => (
             } 
           />
           
+          {/* Corporate Portal Routes */}
+          <Route path="/corporate" element={<CorporateLogin />} />
+          <Route 
+            path="/corporate/change-password" 
+            element={
+              <CorporateProtectedRoute>
+                <CorporateChangePassword />
+              </CorporateProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/corporate/dashboard" 
+            element={
+              <CorporateProtectedRoute>
+                <CorporateDashboard />
+              </CorporateProtectedRoute>
+            } 
+          />
+          
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
           </Routes>
-        </GlobalStickyTabs>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
-  </GoogleOAuthProvider>
-);
+          </GlobalStickyTabs>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
+    </GoogleOAuthProvider>
+  );
+};
 
 export default App;

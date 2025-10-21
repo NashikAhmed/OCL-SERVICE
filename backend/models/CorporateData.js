@@ -67,6 +67,13 @@ const corporateSchema = new mongoose.Schema({
     trim: true,
     match: [/^[\d\s\-\+\(\)]{10,15}$/, 'Please enter a valid contact number']
   },
+  email: {
+    type: String,
+    required: [true, 'Email is required'],
+    trim: true,
+    lowercase: true,
+    match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email address']
+  },
   addressType: {
     type: String,
     enum: ['corporate', 'branch', 'firm', 'other'],
@@ -78,6 +85,17 @@ const corporateSchema = new mongoose.Schema({
     required: [true, 'Password is required'],
     minlength: [6, 'Password must be at least 6 characters long']
   },
+  username: {
+    type: String,
+    required: true,
+    unique: true,
+    trim: true
+  },
+  generatedPassword: {
+    type: String,
+    required: true,
+    minlength: [8, 'Generated password must be at least 8 characters long']
+  },
   isActive: {
     type: Boolean,
     default: true
@@ -85,14 +103,31 @@ const corporateSchema = new mongoose.Schema({
   registrationDate: {
     type: Date,
     default: Date.now
+  },
+  emailSent: {
+    type: Boolean,
+    default: false
+  },
+  emailSentAt: {
+    type: Date
+  },
+  isFirstLogin: {
+    type: Boolean,
+    default: true
+  },
+  lastLogin: {
+    type: Date
+  },
+  logo: {
+    type: String,
+    trim: true
   }
 }, {
   timestamps: true,
   collection: 'corporateregistrations'
 });
 
-// Create indexes for better query performance
-corporateSchema.index({ corporateId: 1 });
+// Create indexes for better query performance (removed duplicates of unique fields)
 corporateSchema.index({ companyName: 1 });
 corporateSchema.index({ gstNumber: 1 });
 corporateSchema.index({ contactNumber: 1 });
@@ -100,6 +135,7 @@ corporateSchema.index({ pin: 1 });
 corporateSchema.index({ city: 1 });
 corporateSchema.index({ state: 1 });
 corporateSchema.index({ registrationDate: -1 });
+corporateSchema.index({ emailSent: 1 });
 
 // Virtual for full address
 corporateSchema.virtual('fullAddress').get(function() {
@@ -164,6 +200,11 @@ corporateSchema.pre('save', async function(next) {
       }
     });
     
+    // Ensure email is lowercase
+    if (this.email) {
+      this.email = this.email.toLowerCase().trim();
+    }
+    
     // Uppercase GST number
     if (this.gstNumber) {
       this.gstNumber = this.gstNumber.toUpperCase();
@@ -218,10 +259,51 @@ corporateSchema.statics.searchCompanies = function(searchQuery) {
       { corporateId: searchRegex },
       { gstNumber: searchRegex },
       { contactNumber: searchRegex },
+      { email: searchRegex },
+      { username: searchRegex },
       { city: searchRegex },
       { state: searchRegex }
     ]
   }).sort({ registrationDate: -1 });
+};
+
+// Static method to generate username
+corporateSchema.statics.generateUsername = function(email, contactNumber) {
+  // Use email as username if available, otherwise use phone number
+  if (email && email.includes('@')) {
+    return email.toLowerCase().trim();
+  } else if (contactNumber) {
+    // Clean phone number and use as username
+    const cleanPhone = contactNumber.replace(/\D/g, '');
+    return cleanPhone;
+  } else {
+    throw new Error('Either email or contact number is required to generate username');
+  }
+};
+
+// Static method to generate random password
+corporateSchema.statics.generatePassword = function() {
+  const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const lowercase = 'abcdefghijklmnopqrstuvwxyz';
+  const numbers = '0123456789';
+  const symbols = '!@#$%^&*';
+  
+  let password = '';
+  
+  // Ensure at least one character from each category
+  password += uppercase[Math.floor(Math.random() * uppercase.length)];
+  password += lowercase[Math.floor(Math.random() * lowercase.length)];
+  password += numbers[Math.floor(Math.random() * numbers.length)];
+  password += symbols[Math.floor(Math.random() * symbols.length)];
+  
+  // Fill the rest randomly
+  const allChars = uppercase + lowercase + numbers + symbols;
+  for (let i = 4; i < 12; i++) {
+    password += allChars[Math.floor(Math.random() * allChars.length)];
+  }
+  
+  // Shuffle the password
+  return password.split('').sort(() => Math.random() - 0.5).join('');
 };
 
 // Instance method to verify password
@@ -235,6 +317,13 @@ corporateSchema.methods.getMaskedContact = function() {
     return `${this.contactNumber.slice(0, 2)}****${this.contactNumber.slice(-4)}`;
   }
   return this.contactNumber;
+};
+
+// Instance method to mark email as sent
+corporateSchema.methods.markEmailSent = function() {
+  this.emailSent = true;
+  this.emailSentAt = new Date();
+  return this.save();
 };
 
 export default mongoose.model("CorporateData", corporateSchema);

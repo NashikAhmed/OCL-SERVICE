@@ -47,7 +47,22 @@ const officeUserSchema = new mongoose.Schema({
     reports: { type: Boolean, default: true },
     settings: { type: Boolean, default: true },
     pincodeManagement: { type: Boolean, default: false },
-    addressForms: { type: Boolean, default: false }
+    addressForms: { type: Boolean, default: false },
+    coloaderRegistration: { type: Boolean, default: false },
+    coloaderManagement: { type: Boolean, default: false },
+    corporateRegistration: { type: Boolean, default: false },
+    corporateManagement: { type: Boolean, default: false },
+    corporatePricing: { type: Boolean, default: false },
+    corporateApproval: { type: Boolean, default: false },
+    employeeRegistration: { type: Boolean, default: false },
+    employeeManagement: { type: Boolean, default: false },
+    consignmentManagement: { type: Boolean, default: false },
+    courierRequests: { type: Boolean, default: false },
+    invoiceManagement: { type: Boolean, default: false },
+    userManagement: { type: Boolean, default: false },
+    baggingManagement: { type: Boolean, default: false },
+    receivedOrders: { type: Boolean, default: false },
+    manageOrders: { type: Boolean, default: false }
   },
   // Additional user info
   department: {
@@ -74,15 +89,17 @@ const officeUserSchema = new mongoose.Schema({
     type: String,
     enum: ['local', 'google'],
     default: 'local'
+  },
+  isFirstLogin: {
+    type: Boolean,
+    default: true
   }
 }, {
   timestamps: true,
   collection: 'office_users'
 });
 
-// Create indexes
-officeUserSchema.index({ email: 1 }, { unique: true });
-officeUserSchema.index({ googleId: 1 }, { unique: true, sparse: true });
+// Create indexes (removed duplicate unique indexes since they're already defined in schema)
 officeUserSchema.index({ isActive: 1 });
 officeUserSchema.index({ role: 1 });
 

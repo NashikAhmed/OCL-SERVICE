@@ -1,38 +1,53 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { 
-  Home, 
-  FileText, 
-  Settings,
-  Globe,
-  Menu,
-  X,
-  Package,
-  MapPin,
+import { useNavigate } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
   Users,
-  LogOut
+  FileText,
+  MapPin,
+  LogOut,
+  BarChart3,
+  Settings,
+  Shield,
+  Activity,
+  UserCog,
+  Crown,
+  Truck,
+  Package,
+  X,
+  Menu,
 } from 'lucide-react';
-import BookingPanel from '@/components/BookingPanel';
-import AddressFormsTable from '@/components/office/AddressFormsTable';
-import PincodeManagement from '@/components/office/PincodeManagement';
-import UserManagement from '@/components/office/UserManagement';
-// Import admin components for users with admin privileges
-import AdminAddressFormsTable from '@/components/admin/AddressFormsTable';
-import AdminPincodeManagement from '@/components/admin/PincodeManagement';
 import { useToast } from '@/hooks/use-toast';
-
-interface NavigationItem {
-  id: string;
-  label: string;
-  icon: React.ComponentType<any>;
-  permission?: string;
-}
+import BookingPanel from '@/components/BookingPanel';
+// Import admin components for users with admin privileges
+import AdminManagement from '@/components/admin/AdminManagement';
+import ColoaderRegistration from '@/components/admin/ColoaderRegistration';
+import AddressFormsTable from '@/components/admin/AddressFormsTable';
+import PincodeManagement from '@/components/admin/PincodeManagement';
+import UserManagement from '@/components/admin/UserManagement';
+import ColoaderManagement from '@/components/admin/ColoaderManagement';
+// Import all admin components for office users
+import EmployeeRegistration from '@/components/admin/EmployeeRegistration';
+import EmployeeManagement from '@/components/admin/EmployeeManagement';
+import CorporateRegistration from '@/components/admin/CorporateRegistration';
+import CorporateManagement from '@/components/admin/CorporateManagement';
+import CorporatePricing from '@/components/admin/CorporatePricing';
+import CorporateApproval from '@/components/admin/CorporateApproval';
+import ConsignmentManagement from '@/components/admin/ConsignmentManagement';
+import CourierRequests from '@/components/admin/CourierRequests';
+import InvoiceManagement from '@/components/admin/InvoiceManagement';
+import BaggingManagement from '@/components/admin/BaggingManagement';
+import ReceivedOrders from '@/components/admin/ReceivedOrders';
+import ManageOrders from '@/components/admin/ManageOrders';
 
 interface OfficeUser {
   id: string;
   name: string;
   email: string;
   role: string;
+  lastLogin: string;
   permissions: {
     dashboard: boolean;
     booking: boolean;
@@ -40,6 +55,21 @@ interface OfficeUser {
     settings: boolean;
     pincodeManagement: boolean;
     addressForms: boolean;
+    coloaderRegistration: boolean;
+    coloaderManagement: boolean;
+    corporateRegistration: boolean;
+    corporateManagement: boolean;
+    corporatePricing: boolean;
+    corporateApproval: boolean;
+    employeeRegistration: boolean;
+    employeeManagement: boolean;
+    consignmentManagement: boolean;
+    courierRequests: boolean;
+    invoiceManagement: boolean;
+    userManagement: boolean;
+    baggingManagement: boolean;
+    receivedOrders: boolean;
+    manageOrders: boolean;
   };
   department?: string;
   adminInfo?: {
@@ -47,9 +77,11 @@ interface OfficeUser {
     role: string;
     permissions: {
       dashboard: boolean;
+      booking: boolean;
       userManagement: boolean;
       pincodeManagement: boolean;
       addressForms: boolean;
+      coloaderRegistration: boolean; // Add this new permission
       reports: boolean;
       settings: boolean;
     };
@@ -57,47 +89,159 @@ interface OfficeUser {
   };
 }
 
-const OfficeDashboard: React.FC = () => {
-  const [activeItem, setActiveItem] = useState('dashboard');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+interface AdminInfo {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  lastLogin: string;
+}
+
+const OfficeDashboard = () => {
   const [user, setUser] = useState<OfficeUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState('overview');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [consignmentStats, setConsignmentStats] = useState({
+    totalAssigned: 0,
+    usedCount: 0,
+    availableCount: 0,
+    usagePercentage: 0
+  });
+  const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Get user info from localStorage and refresh from server
   useEffect(() => {
-    const loadUserData = async () => {
-      const userData = localStorage.getItem('officeUser');
-      if (userData) {
-        try {
-          setUser(JSON.parse(userData));
-        } catch (error) {
-          console.error('Error parsing user data:', error);
+    const token = localStorage.getItem('officeToken');
+    const storedUserInfo = localStorage.getItem('officeUser');
+
+    if (!token || !storedUserInfo) {
+      navigate('/office');
+      return;
+    }
+
+    const loadUserData = () => {
+      try {
+        const userData = JSON.parse(storedUserInfo);
+        
+        // Ensure the new permission fields exist in the user data
+        // This handles cases where existing users don't have the new fields
+        if (userData.permissions) {
+          if (userData.permissions.coloaderRegistration === undefined) {
+            userData.permissions.coloaderRegistration = false;
+          }
+          if (userData.permissions.baggingManagement === undefined) {
+            userData.permissions.baggingManagement = false;
+          }
+          if (userData.permissions.receivedOrders === undefined) {
+            userData.permissions.receivedOrders = false;
+          }
+          if (userData.permissions.manageOrders === undefined) {
+            userData.permissions.manageOrders = false;
+          }
+        }
+        
+        if (userData.adminInfo && userData.adminInfo.permissions) {
+          if (userData.adminInfo.permissions.coloaderRegistration === undefined) {
+            userData.adminInfo.permissions.coloaderRegistration = false;
+          }
+          if (userData.adminInfo.permissions.baggingManagement === undefined) {
+            userData.adminInfo.permissions.baggingManagement = false;
+          }
+          if (userData.adminInfo.permissions.receivedOrders === undefined) {
+            userData.adminInfo.permissions.receivedOrders = false;
+          }
+          if (userData.adminInfo.permissions.manageOrders === undefined) {
+            userData.adminInfo.permissions.manageOrders = false;
+          }
+        }
+        
+        setUser(userData);
+      } catch (error) {
+        navigate('/office');
+        return;
+      }
+    };
+
+    loadUserData();
+
+    // Add a global function to refresh permissions (can be called from anywhere)
+    (window as any).refreshOfficePermissions = () => {
+      console.log('🔄 Manual permission refresh triggered');
+      loadUserData();
+    };
+
+    // Listen for permission update events
+    const handlePermissionUpdate = (event) => {
+      console.log('🔄 Permission update detected:', event.type, 'refreshing user data...');
+      console.log('🔄 Event details:', event.detail);
+      loadUserData();
+    };
+
+    // Also add a global listener for any permission changes
+    const handleGlobalPermissionUpdate = () => {
+      console.log('🔄 Global permission update detected, refreshing user data...');
+      loadUserData();
+    };
+
+    // Add event listeners for permission updates
+    window.addEventListener('userPermissionsUpdated', handlePermissionUpdate);
+    window.addEventListener('officeUserPermissionsUpdated', handlePermissionUpdate);
+    window.addEventListener('permissionsUpdated', handlePermissionUpdate);
+    
+    // Add a global listener for any storage changes (fallback)
+    const handleStorageChange = (e) => {
+      if (e.key === 'officeUser') {
+        console.log('🔄 Office user data changed in localStorage, refreshing...');
+        loadUserData();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+
+    // Set isLoading to false after user data is loaded
+    setIsLoading(false);
+    
+    // Cleanup event listeners on unmount
+    return () => {
+      window.removeEventListener('userPermissionsUpdated', handlePermissionUpdate);
+      window.removeEventListener('officeUserPermissionsUpdated', handlePermissionUpdate);
+      window.removeEventListener('permissionsUpdated', handlePermissionUpdate);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [navigate]);
+
+  // Fetch consignment stats for office user
+  const fetchConsignmentStats = async () => {
+    try {
+      const token = localStorage.getItem('officeToken');
+      const response = await fetch('/api/office/consignment/assignments', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.hasAssignment) {
+          setConsignmentStats(data.summary);
         }
       }
-      
-      // Refresh user data from server to get latest permissions
-      await refreshUserData();
-      setIsLoading(false);
-    };
-    
-    loadUserData();
-  }, []);
+    } catch (error) {
+      console.error('Error fetching consignment stats:', error);
+    }
+  };
 
-  // Periodically refresh user data to ensure permissions are up-to-date
   useEffect(() => {
-    const interval = setInterval(() => {
-      refreshUserData();
-    }, 30000); // Refresh every 30 seconds
-
-    return () => clearInterval(interval);
-  }, []);
+    if (user) {
+      fetchConsignmentStats();
+    }
+  }, [user]);
 
   // Function to refresh user data from server
   const refreshUserData = async () => {
     try {
-      setIsRefreshing(true);
       const token = localStorage.getItem('officeToken');
       if (!token) return;
 
@@ -108,374 +252,664 @@ const OfficeDashboard: React.FC = () => {
       });
 
       if (response.ok) {
-        const userData = await response.json();
-        setUser(userData.user);
-        localStorage.setItem('officeUser', JSON.stringify(userData.user));
-      } else if (response.status === 401) {
-        // Token expired
-        localStorage.removeItem('officeToken');
-        localStorage.removeItem('officeUser');
-        window.location.href = '/office';
+        const data = await response.json();
+        const userData = data.user;
+        
+        // Ensure the new permission field exists in the user data
+        if (userData.permissions && userData.permissions.coloaderRegistration === undefined) {
+          userData.permissions.coloaderRegistration = false;
+        }
+        
+        if (userData.adminInfo && userData.adminInfo.permissions && userData.adminInfo.permissions.coloaderRegistration === undefined) {
+          userData.adminInfo.permissions.coloaderRegistration = false;
+        }
+        
+        // Update localStorage with fresh data
+        localStorage.setItem('officeUser', JSON.stringify(userData));
+        setUser(userData);
       }
     } catch (error) {
       console.error('Error refreshing user data:', error);
-    } finally {
-      setIsRefreshing(false);
     }
   };
 
-  const navigationItems: NavigationItem[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: Home, permission: 'dashboard' },
-    { id: 'booking', label: 'Booking', icon: Package, permission: 'booking' },
-    { id: 'reports', label: 'Reports', icon: FileText, permission: 'reports' },
-    { id: 'addressforms', label: 'Address Forms', icon: Users, permission: 'addressForms' },
-    { id: 'pincodes', label: 'Pincode Management', icon: MapPin, permission: 'pincodeManagement' },
-    { id: 'usermanagement', label: 'User Management', icon: Users, permission: 'userManagement' },
-    { id: 'settings', label: 'Settings', icon: Settings, permission: 'settings' }
-  ];
+  // Listen for storage changes to update user data in real-time
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const storedUserInfo = localStorage.getItem('officeUser');
+      if (storedUserInfo) {
+        try {
+          const userData = JSON.parse(storedUserInfo);
+          setUser(userData);
+        } catch (error) {
+          console.error('Error parsing updated user data:', error);
+        }
+      }
+    };
 
-  // Filter navigation items based on user permissions (office + admin)
-  const filteredNavigationItems = navigationItems.filter(item => {
-    if (!item.permission) return true;
+    const handlePermissionsUpdate = () => {
+      // When permissions are updated, refresh user data from server to ensure we have the latest
+      refreshUserData();
+    };
+
+    // Listen for storage events (when localStorage is updated from other tabs/components)
+    window.addEventListener('storage', handleStorageChange);
     
-    // Check office user permissions first
-    const hasOfficePermission = user?.permissions?.[item.permission as keyof typeof user.permissions];
-    
-    // Check admin permissions if user has admin privileges
-    const hasAdminPermission = user?.adminInfo?.permissions?.[item.permission as keyof typeof user.adminInfo.permissions];
-    
-    // Special case: userManagement permission only exists in admin permissions, not office permissions
-    if (item.permission === 'userManagement') {
-      return hasAdminPermission;
-    }
-    
-    return hasOfficePermission || hasAdminPermission;
-  });
+    // Also listen for custom events for same-tab updates
+    window.addEventListener('userPermissionsUpdated', handlePermissionsUpdate);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('userPermissionsUpdated', handlePermissionsUpdate);
+    };
+  }, []);
+
+  // const fetchDashboardStats = async () => {
+  //   try {
+  //     const token = localStorage.getItem('officeToken');
+  //     const response = await fetch('/api/office/stats', {
+  //       headers: { Authorization: `Bearer ${token}` },
+  //     });
+
+  //     if (response.ok) {
+  //       const data = await response.json();
+  //       // setStats(data.stats);
+  //     } else if (response.status === 401) {
+  //       handleLogout();
+  //       return;
+  //     } else {
+  //       setError('Failed to load dashboard statistics');
+  //     }
+  //   } catch {
+  //     setError('Network error while loading dashboard');
+  //   } finally {
+  //     setIsLoading(false);
+  //   }
+  // };
 
   const toggleSidebar = () => {
-    setSidebarCollapsed(!sidebarCollapsed);
-  };
-
-  // Refresh user data when navigating to permission-protected sections
-  const handleNavigation = async (itemId: string) => {
-    setActiveItem(itemId);
-    
-    // If navigating to a permission-protected section, refresh user data
-    if (itemId === 'addressforms' || itemId === 'pincodes' || itemId === 'usermanagement') {
-      await refreshUserData();
-    }
+    setIsSidebarCollapsed(!isSidebarCollapsed);
   };
 
   const handleLogout = () => {
     localStorage.removeItem('officeToken');
     localStorage.removeItem('officeUser');
-    toast({
-      title: "Logged out",
-      description: "You have been successfully logged out.",
-    });
-    window.location.href = '/office';
+    toast({ title: 'Logged out', description: 'You have been logged out.' });
+    navigate('/office');
   };
 
   if (isLoading) {
     return (
-      <div className="flex h-screen bg-[#E9F4F4] items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#315750] mx-auto mb-4"></div>
-          <p className="text-[#315750]">Loading dashboard...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Activity className="h-8 w-8 animate-spin mx-auto mb-4 text-gray-500" />
+        <p className="text-gray-600">Loading dashboard...</p>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen bg-[#E9F4F4]">
-      {/* Fixed Sidebar */}
-      <motion.div 
-        className="fixed left-0 top-0 h-full bg-[#315750] flex flex-col transition-all duration-300 ease-in-out z-50"
-        animate={{ width: sidebarCollapsed ? '80px' : '220px' }}
-        initial={{ width: '220px' }}
-      >
-        {/* Toggle Button */}
-        <div className="p-4 flex justify-end">
-          <button
-            onClick={toggleSidebar}
-            className="p-2 rounded-lg bg-[#3d6b5f] hover:bg-[#4a7a6a] text-white transition-colors duration-200"
-          >
-            {sidebarCollapsed ? <Menu className="w-5 h-5" /> : <X className="w-5 h-5" />}
-          </button>
+    <div className="flex h-screen w-screen bg-gray-100 overflow-hidden">
+      {/* Sidebar */}
+      <aside className={`${isSidebarCollapsed ? 'w-16' : 'w-64'} h-screen fixed left-0 top-0 flex flex-col bg-white rounded-r-2xl shadow-[0_10px_30px_rgba(16,24,40,0.08)] border border-gray-100 z-20 transition-all duration-300 ease-in-out`}>
+        {/* Header section - fixed at top */}
+        <div className={`${isSidebarCollapsed ? 'p-3' : 'p-5'} border-b border-gray-100`}>
+          {/* Button area - dedicated space for cross/expand buttons */}
+          <div className={`flex ${isSidebarCollapsed ? 'justify-center' : 'justify-end'} mb-4`}>
+            <button
+              onClick={toggleSidebar}
+              className="p-1 rounded-lg hover:bg-gray-100 transition-colors"
+              title={isSidebarCollapsed ? "Expand sidebar" : "Minimize sidebar"}
+            >
+              {isSidebarCollapsed ? (
+                <Menu className="h-5 w-5 text-gray-600" />
+              ) : (
+                <X className="h-5 w-5 text-gray-600" />
+              )}
+            </button>
+          </div>
+
+          {/* Office logo and text section */}
+          <div className={`flex items-center ${isSidebarCollapsed ? 'justify-center mb-4' : 'gap-3 mb-6'}`}>
+            <div className="p-3 rounded-xl bg-white shadow-inner">
+              <Shield className="h-6 w-6 text-blue-600" />
             </div>
-            
-        {/* User Profile Header */}
-        <div className="p-4 flex justify-center">
-          <div className="relative">
-            <div className={`${sidebarCollapsed ? 'w-10 h-10' : 'w-12 h-12'} rounded-full border-2 border-yellow-400 overflow-hidden bg-gray-300 transition-all duration-300`}>
-              {/* Placeholder for user image - will be replaced with company logo */}
-              <img 
-                src="/api/placeholder/64/64" 
-                alt="User Profile" 
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  // Fallback if image doesn't load
-                  const target = e.target as HTMLImageElement;
-                  target.style.display = 'none';
-                  target.parentElement!.innerHTML = '<div class="w-full h-full bg-gray-400 flex items-center justify-center text-white text-sm font-bold">U</div>';
-                }}
-              />
-            </div>
+            {!isSidebarCollapsed && (
+              <div>
+                <h2 className="text-lg font-bold text-gray-800">Office Panel</h2>
+                <p className="text-xs text-gray-500">OCL Management</p>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* User Info */}
-        {!sidebarCollapsed && user && (
-          <div className="px-4 mb-4">
-            <div className="bg-white/20 rounded-lg p-3 text-white">
+        {/* Scrollable navigation section */}
+        <div className="flex-1 overflow-y-auto scrollbar-hide">
+          <nav className={`${isSidebarCollapsed ? 'space-y-2 p-3' : 'space-y-3 p-5'}`}>
+            <button
+              onClick={() => setActiveTab('overview')}
+              className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                activeTab === 'overview'
+                  ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                  : 'text-gray-700 hover:bg-gray-50'
+              }`}
+              title={isSidebarCollapsed ? "Overview" : ""}
+            >
+              <BarChart3 className="h-5 w-5" />
+              {!isSidebarCollapsed && <span className="font-medium text-sm">Overview</span>}
+            </button>
+
+            {/* Booking Panel - shown when user has booking permission */}
+            {(user?.permissions?.booking || user?.adminInfo?.permissions?.booking) && (
+              <button
+                onClick={() => setActiveTab('booking')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'booking'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Booking" : ""}
+              >
+                <Package className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Booking</span>}
+              </button>
+            )}
+
+            {/* Address Forms - only shown when user has access */}
+            {(user?.permissions?.addressForms || user?.adminInfo?.permissions?.addressForms) && (
+              <button
+                onClick={() => setActiveTab('addressforms')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'addressforms'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Address Forms" : ""}
+              >
+                <FileText className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Address Forms</span>}
+              </button>
+            )}
+
+            {/* Pincode Management - only shown when user has access */}
+            {(user?.permissions?.pincodeManagement || user?.adminInfo?.permissions?.pincodeManagement) && (
+              <button
+                onClick={() => setActiveTab('pincodes')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'pincodes'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Pincode Management" : ""}
+              >
+                <MapPin className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Pincode Management</span>}
+              </button>
+            )}
+
+            {/* User Management - only shown when user has admin access */}
+            {(user?.adminInfo?.permissions?.userManagement) && (
+              <button
+                onClick={() => setActiveTab('users')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'users'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "User Management" : ""}
+              >
+                <UserCog className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">User Management</span>}
+              </button>
+            )}
+
+            {/* Settings - shown by default for all users */}
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                activeTab === 'settings'
+                  ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                  : 'text-gray-700 hover:bg-gray-50'
+              }`}
+              title={isSidebarCollapsed ? "Settings" : ""}
+            >
+              <Settings className="h-5 w-5" />
+              {!isSidebarCollapsed && <span className="font-medium text-sm">Settings</span>}
+            </button>
+
+            {/* Reports - shown by default for all users */}
+            <button
+              onClick={() => setActiveTab('reports')}
+              className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                activeTab === 'reports'
+                  ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                  : 'text-gray-700 hover:bg-gray-50'
+              }`}
+              title={isSidebarCollapsed ? "Reports" : ""}
+            >
+              <FileText className="h-5 w-5" />
+              {!isSidebarCollapsed && <span className="font-medium text-sm">Reports</span>}
+            </button>
+
+            {/* Coloader Registration - only shown when user has access */}
+            {(user?.permissions?.coloaderRegistration || user?.adminInfo?.permissions?.coloaderRegistration) && (
+              <button
+                onClick={() => setActiveTab('coloader')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'coloader'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Coloader Registration" : ""}
+              >
+                <Truck className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Coloader Registration</span>}
+              </button>
+            )}
+
+            {/* Coloader Management - only shown when user has access */}
+            {(user?.permissions?.coloaderManagement || user?.adminInfo?.permissions?.coloaderManagement) && (
+              <button
+                onClick={() => setActiveTab('coloaderManagement')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'coloaderManagement'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Coloader Management" : ""}
+              >
+                <Truck className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Coloader Management</span>}
+              </button>
+            )}
+
+            {/* Employee Management - only shown when user has access */}
+            {(user?.permissions?.employeeManagement || user?.adminInfo?.permissions?.employeeManagement) && (
+              <button
+                onClick={() => setActiveTab('employeeManagement')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'employeeManagement'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Employee Management" : ""}
+              >
+                <Users className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Employee Management</span>}
+              </button>
+            )}
+
+            {/* Employee Registration - only shown when user has access */}
+            {(user?.permissions?.employeeRegistration || user?.adminInfo?.permissions?.employeeRegistration) && (
+              <button
+                onClick={() => setActiveTab('employeeRegistration')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'employeeRegistration'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Employee Registration" : ""}
+              >
+                <Users className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Employee Registration</span>}
+              </button>
+            )}
+
+            {/* Corporate Management - only shown when user has access */}
+            {(user?.permissions?.corporateManagement || user?.adminInfo?.permissions?.corporateManagement) && (
+              <button
+                onClick={() => setActiveTab('corporateManagement')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'corporateManagement'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Corporate Management" : ""}
+              >
+                <Shield className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Corporate Management</span>}
+              </button>
+            )}
+
+            {/* Corporate Registration - only shown when user has access */}
+            {(user?.permissions?.corporateRegistration || user?.adminInfo?.permissions?.corporateRegistration) && (
+              <button
+                onClick={() => setActiveTab('corporateRegistration')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'corporateRegistration'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Corporate Registration" : ""}
+              >
+                <Shield className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Corporate Registration</span>}
+              </button>
+            )}
+
+            {/* Corporate Pricing - only shown when user has access */}
+            {(user?.permissions?.corporatePricing || user?.adminInfo?.permissions?.corporatePricing) && (
+              <button
+                onClick={() => setActiveTab('corporatePricing')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'corporatePricing'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Corporate Pricing" : ""}
+              >
+                <BarChart3 className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Corporate Pricing</span>}
+              </button>
+            )}
+
+            {/* Corporate Approval - only shown when user has access */}
+            {(user?.permissions?.corporateApproval || user?.adminInfo?.permissions?.corporateApproval) && (
+              <button
+                onClick={() => setActiveTab('corporateApproval')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'corporateApproval'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Corporate Approval" : ""}
+              >
+                <Shield className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Corporate Approval</span>}
+              </button>
+            )}
+
+            {/* Consignment Management - only shown when user has access */}
+            {(user?.permissions?.consignmentManagement || user?.adminInfo?.permissions?.consignmentManagement) && (
+              <button
+                onClick={() => setActiveTab('consignmentManagement')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'consignmentManagement'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Consignment Management" : ""}
+              >
+                <Package className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Consignment Management</span>}
+              </button>
+            )}
+
+            {/* Courier Requests - only shown when user has access */}
+            {(user?.permissions?.courierRequests || user?.adminInfo?.permissions?.courierRequests) && (
+              <button
+                onClick={() => setActiveTab('courierRequests')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'courierRequests'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Courier Requests" : ""}
+              >
+                <Truck className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Courier Requests</span>}
+              </button>
+            )}
+
+            {/* Invoice Management - only shown when user has access */}
+            {(user?.permissions?.invoiceManagement || user?.adminInfo?.permissions?.invoiceManagement) && (
+              <button
+                onClick={() => setActiveTab('invoiceManagement')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'invoiceManagement'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Invoice Management" : ""}
+              >
+                <FileText className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Invoice Management</span>}
+              </button>
+            )}
+
+            {/* Bagging Management - only shown when user has access */}
+            {(user?.permissions?.baggingManagement || user?.adminInfo?.permissions?.baggingManagement) && (
+              <button
+                onClick={() => setActiveTab('baggingManagement')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'baggingManagement'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Bagging Management" : ""}
+              >
+                <Package className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Bagging Management</span>}
+              </button>
+            )}
+
+            {/* Received Orders - only shown when user has access */}
+            {(user?.permissions?.receivedOrders || user?.adminInfo?.permissions?.receivedOrders) && (
+              <button
+                onClick={() => setActiveTab('receivedOrders')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'receivedOrders'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Received Orders" : ""}
+              >
+                <Package className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Received Orders</span>}
+              </button>
+            )}
+
+            {/* Manage Orders - only shown when user has access */}
+            {(user?.permissions?.manageOrders || user?.adminInfo?.permissions?.manageOrders) && (
+              <button
+                onClick={() => setActiveTab('manageOrders')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'manageOrders'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Manage Orders" : ""}
+              >
+                <Package className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Manage Orders</span>}
+              </button>
+            )}
+
+            {/* Admin-only sections */}
+            {user?.adminInfo && user?.adminInfo?.role === 'super_admin' && (
+              <button
+                onClick={() => setActiveTab('admins')}
+                className={`w-full text-left flex items-center ${isSidebarCollapsed ? 'justify-center' : 'gap-3'} px-3 py-2 rounded-xl transition ${
+                  activeTab === 'admins'
+                    ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
+                    : 'text-gray-700 hover:bg-gray-50'
+                }`}
+                title={isSidebarCollapsed ? "Admin Management" : ""}
+              >
+                <Crown className="h-5 w-5" />
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Admin Management</span>}
+              </button>
+            )}
+          </nav>
+        </div>
+
+        {/* Footer - User info - fixed at bottom */}
+        <div className={`${isSidebarCollapsed ? 'p-3' : 'p-5'} border-t border-gray-100 bg-gray-50 rounded-b-2xl flex-shrink-0`}>
+          {!isSidebarCollapsed ? (
+            <>
+              <div className="text-center mb-3">
+                <p className="text-sm font-semibold text-gray-800">{user?.name}</p>
+                <p className="text-xs text-gray-500">{user?.email}</p>
+              </div>
+              <div className="flex flex-col items-center gap-2">
+                <Badge
+                  variant={user?.adminInfo?.role === 'super_admin' ? 'default' : 'secondary'}
+                  className="px-3 py-1"
+                >
+                  {user?.adminInfo ? user.adminInfo.role : user?.role}
+                </Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full bg-white/90"
+                  onClick={handleLogout}
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Logout
+                </Button>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full bg-white/90 p-2"
+                onClick={handleLogout}
+                title="Logout"
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <main className={`${isSidebarCollapsed ? 'ml-16 w-[calc(100vw-4rem)]' : 'ml-64 w-[calc(100vw-16rem)]'} h-screen overflow-y-auto p-6 transition-all duration-300 ease-in-out`}>
+        <div className="bg-white rounded-2xl shadow-[0_20px_50px_rgba(16,24,40,0.08)] border border-gray-100 p-6 min-h-[calc(100vh-3rem)]">
+          {error && (
+            <Alert variant="destructive" className="mb-6 bg-red-50/80 border-0">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {/* Overview */}
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {/* Stat cards - placeholder data for now */}
+                <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-600">Total Forms</h3>
+                    <div className="p-2 bg-blue-50 rounded-lg">
+                      <FileText className="h-5 w-5 text-blue-600" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-bold text-gray-800 mb-1">0</div>
+                  <p className="text-sm text-gray-500">0% completion rate</p>
+                </div>
+
+                <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-600">Completed</h3>
+                    <div className="p-2 bg-green-50 rounded-lg">
+                      <Users className="h-5 w-5 text-green-600" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-bold text-green-600 mb-1">0</div>
+                  <p className="text-sm text-gray-500">Ready for processing</p>
+                </div>
+
+                <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-600">Incomplete</h3>
+                    <div className="p-2 bg-orange-50 rounded-lg">
+                      <Settings className="h-5 w-5 text-orange-600" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-bold text-orange-600 mb-1">0</div>
+                  <p className="text-sm text-gray-500">Require attention</p>
+                </div>
+
+                <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-600">Consignments</h3>
+                    <div className="p-2 bg-purple-50 rounded-lg">
+                      <Package className="h-5 w-5 text-purple-600" />
+                    </div>
+                  </div>
+                  <div className="text-2xl font-bold text-gray-800 mb-1">{consignmentStats.availableCount}</div>
+                  <p className="text-sm text-gray-500">
+                    {consignmentStats.usedCount} used of {consignmentStats.totalAssigned}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-1">Recent Forms</h3>
+                  <p className="text-sm text-gray-500 mb-4">Latest form submissions</p>
+                  <div className="space-y-3">
+                    <p className="text-gray-500 text-center py-4">No recent forms</p>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-1">Top States</h3>
+                  <p className="text-sm text-gray-500 mb-4">Most active states</p>
+                  <div className="space-y-3">
+                    <p className="text-gray-500 text-center py-4">No data available</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Booking Panel */}
+          {activeTab === 'booking' && (
+            <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-semibold text-sm">{user.name}</p>
-                    {user.adminInfo && (
-                      <span className="bg-yellow-500 text-black text-xs px-2 py-1 rounded-full font-bold">
-                        ADMIN
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs opacity-80">{user.email}</p>
-                  {user.department && (
-                    <p className="text-xs opacity-60">{user.department}</p>
-                  )}
-                  {user.adminInfo && (
-                    <p className="text-xs opacity-60">Role: {user.adminInfo.role}</p>
-                  )}
+                  {/* <h1 className="text-2xl font-bold text-gray-800">Booking Panel</h1>
+                  <p className="text-gray-600">Create and manage shipment bookings</p> */}
                 </div>
-                {isRefreshing && (
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                )}
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* Navigation Items */}
-        <nav className="flex-1 px-2">
-          <ul className="space-y-1">
-            {filteredNavigationItems.map((item) => (
-              <li key={item.id} className="relative">
-                <button
-                  onClick={() => handleNavigation(item.id)}
-                  className={`w-full flex items-center transition-all duration-300 relative z-10 rounded-lg ${
-                    sidebarCollapsed 
-                      ? 'px-3 py-3 justify-center' 
-                      : 'px-4 py-3'
-                  } ${
-                    activeItem === item.id 
-                      ? 'text-gray-800' 
-                      : 'text-gray-300 hover:text-white hover:bg-[#3d6b5f]'
-                  }`}
-                  title={sidebarCollapsed ? item.label : undefined}
-                >
-                  <item.icon className={`w-5 h-5 ${sidebarCollapsed ? '' : 'mr-3'} flex-shrink-0`} />
-                  {!sidebarCollapsed && (
-                    <span className="font-medium whitespace-nowrap overflow-hidden">{item.label}</span>
-                  )}
-                </button>
-
-                {/* Active State with Curved Design */}
-                {activeItem === item.id && !sidebarCollapsed && (
-                  <>
-                    {/* Main active background */}
-                    <motion.div
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ duration: 0.3, ease: "easeOut" }}
-                      className="absolute inset-0 bg-[#E9F4F4] rounded-l-full"
-                      style={{
-                        right: '-24px', // Extend into main content area
-                      }}
-                    />
-                    
-                    {/* Top curved cutout */}
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ duration: 0.3, delay: 0.1 }}
-                      className="absolute -top-6 right-0 w-6 h-6 bg-[#315750]"
-                      style={{
-                        borderBottomRightRadius: '24px',
-                        boxShadow: '6px 6px 0 0 #E9F4F4'
-                      }}
-                    />
-                    
-                    {/* Bottom curved cutout */}
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      transition={{ duration: 0.3, delay: 0.1 }}
-                      className="absolute -bottom-6 right-0 w-6 h-6 bg-[#315750]"
-                      style={{
-                        borderTopRightRadius: '24px',
-                        boxShadow: '6px -6px 0 0 #E9F4F4'
-                      }}
-                    />
-                  </>
-                )}
-
-                {/* Simple active state for collapsed sidebar */}
-                {activeItem === item.id && sidebarCollapsed && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ duration: 0.2 }}
-                    className="absolute inset-0 bg-[#3d6b5f] rounded-lg"
-                  />
-                )}
-              </li>
-            ))}
-          </ul>
-        </nav>
-
-        {/* Logout Button */}
-        <div className="p-4">
-          <button
-            onClick={handleLogout}
-            className={`w-full flex items-center transition-all duration-300 relative z-10 rounded-lg ${
-              sidebarCollapsed 
-                ? 'px-3 py-3 justify-center' 
-                : 'px-4 py-3'
-            } text-red-300 hover:text-red-200 hover:bg-red-600/20`}
-            title={sidebarCollapsed ? 'Logout' : undefined}
-          >
-            <LogOut className={`w-5 h-5 ${sidebarCollapsed ? '' : 'mr-3'} flex-shrink-0`} />
-            {!sidebarCollapsed && (
-              <span className="font-medium whitespace-nowrap overflow-hidden">Logout</span>
-            )}
-          </button>
-        </div>
-      </motion.div>
-
-      {/* Main Content Area */}
-      <motion.div 
-        className="flex-1 p-8 transition-all duration-300"
-        animate={{ marginLeft: sidebarCollapsed ? '80px' : '220px' }}
-        initial={{ marginLeft: '220px' }}
-      >
-        <div className="max-w-6xl mx-auto">
-          {/* Content based on active navigation item */}
-          {activeItem === 'booking' && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-            >
               <BookingPanel />
-            </motion.div>
+            </div>
           )}
 
-          {activeItem === 'dashboard' && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-            >
-              <h1 className="text-3xl font-bold text-gray-800 mb-6">Dashboard</h1>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {/* Dashboard content cards */}
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                  <h3 className="text-lg font-semibold text-gray-700 mb-2">Total Shipments</h3>
-                  <p className="text-3xl font-bold text-blue-600">1,247</p>
-                </div>
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                  <h3 className="text-lg font-semibold text-gray-700 mb-2">Active Routes</h3>
-                  <p className="text-3xl font-bold text-green-600">89</p>
-                </div>
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                  <h3 className="text-lg font-semibold text-gray-700 mb-2">Pending Deliveries</h3>
-                  <p className="text-3xl font-bold text-orange-600">156</p>
+          {/* Other pages */}
+          {activeTab === 'addressforms' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Address Forms</h1>
+                  <p className="text-gray-600">View and manage customer address forms</p>
                 </div>
               </div>
-        </motion.div>
+              <AddressFormsTable />
+            </div>
           )}
-
-          {activeItem === 'reports' && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-            >
-              <h1 className="text-3xl font-bold text-gray-800 mb-6">Reports</h1>
-              <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100">
-                <h3 className="text-xl font-semibold text-gray-700 mb-4">Monthly Performance Report</h3>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center py-3 border-b border-gray-100">
-                    <span className="text-gray-600">Delivery Success Rate</span>
-                    <span className="font-semibold text-green-600">98.5%</span>
-                  </div>
-                  <div className="flex justify-between items-center py-3 border-b border-gray-100">
-                    <span className="text-gray-600">Average Delivery Time</span>
-                    <span className="font-semibold text-blue-600">2.3 days</span>
-                  </div>
-                  <div className="flex justify-between items-center py-3 border-b border-gray-100">
-                    <span className="text-gray-600">Customer Satisfaction</span>
-                    <span className="font-semibold text-purple-600">4.8/5.0</span>
-                  </div>
+          {activeTab === 'pincodes' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Pincode Management</h1>
+                  <p className="text-gray-600">Manage pincode areas and coverage</p>
                 </div>
               </div>
-        </motion.div>
+              <PincodeManagement />
+            </div>
           )}
-
-          {activeItem === 'addressforms' && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-            >
-              <h1 className="text-3xl font-bold text-gray-800 mb-6">Address Forms</h1>
-              <div className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-xl p-1">
-                {user?.adminInfo ? (
-                  <AdminAddressFormsTable />
-                ) : (
-                  <AddressFormsTable />
-                )}
+          {activeTab === 'users' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">User Management</h1>
+                  <p className="text-gray-600">Manage office users and permissions</p>
+                </div>
               </div>
-            </motion.div>
+              <UserManagement />
+            </div>
           )}
-
-          {activeItem === 'pincodes' && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-            >
-              <h1 className="text-3xl font-bold text-gray-800 mb-6">Pincode Management</h1>
-              <div className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-xl p-1">
-                {user?.adminInfo ? (
-                  <AdminPincodeManagement />
-                ) : (
-                  <PincodeManagement />
-                )}
+          {activeTab === 'settings' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Settings</h1>
+                  <p className="text-gray-600">Manage your account settings and preferences</p>
+                </div>
               </div>
-            </motion.div>
-          )}
-
-          {activeItem === 'usermanagement' && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-            >
-              <h1 className="text-3xl font-bold text-gray-800 mb-6">User Management</h1>
-              <div className="bg-white/70 backdrop-blur-sm rounded-2xl shadow-xl p-6">
-                <UserManagement />
-              </div>
-            </motion.div>
-          )}
-
-          {activeItem === 'settings' && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5 }}
-            >
-              <h1 className="text-3xl font-bold text-gray-800 mb-6">Settings</h1>
               <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100">
                 <h3 className="text-xl font-semibold text-gray-700 mb-6">System Configuration</h3>
                 <div className="space-y-6">
@@ -510,10 +944,228 @@ const OfficeDashboard: React.FC = () => {
                   </div>
                 </div>
               </div>
-        </motion.div>
+            </div>
+          )}
+          {activeTab === 'reports' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Reports</h1>
+                  <p className="text-gray-600">View and generate reports</p>
+                </div>
+              </div>
+              <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100">
+                <h3 className="text-xl font-semibold text-gray-700 mb-4">Monthly Performance Report</h3>
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center py-3 border-b border-gray-100">
+                    <span className="text-gray-600">Delivery Success Rate</span>
+                    <span className="font-semibold text-green-600">98.5%</span>
+                  </div>
+                  <div className="flex justify-between items-center py-3 border-b border-gray-100">
+                    <span className="text-gray-600">Average Delivery Time</span>
+                    <span className="font-semibold text-blue-600">2.3 days</span>
+                  </div>
+                  <div className="flex justify-between items-center py-3 border-b border-gray-100">
+                    <span className="text-gray-600">Customer Satisfaction</span>
+                    <span className="font-semibold text-purple-600">4.8/5.0</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          {activeTab === 'coloader' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Coloader Registration</h1>
+                  <p className="text-gray-600">Manage coloader partner registrations</p>
+                </div>
+              </div>
+              <ColoaderRegistration />
+            </div>
+          )}
+          {activeTab === 'coloaderManagement' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Coloader Management</h1>
+                  <p className="text-gray-600">View and manage registered coloaders</p>
+                </div>
+              </div>
+              <ColoaderManagement />
+            </div>
+          )}
+          {/* Employee Management */}
+          {activeTab === 'employeeManagement' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Employee Management</h1>
+                  <p className="text-gray-600">View and manage employee records</p>
+                </div>
+              </div>
+              <EmployeeManagement />
+            </div>
+          )}
+
+          {/* Employee Registration */}
+          {activeTab === 'employeeRegistration' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Employee Registration</h1>
+                  <p className="text-gray-600">Register new employees</p>
+                </div>
+              </div>
+              <EmployeeRegistration />
+            </div>
+          )}
+
+          {/* Corporate Management */}
+          {activeTab === 'corporateManagement' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Corporate Management</h1>
+                  <p className="text-gray-600">View and manage corporate clients</p>
+                </div>
+              </div>
+              <CorporateManagement />
+            </div>
+          )}
+
+          {/* Corporate Registration */}
+          {activeTab === 'corporateRegistration' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Corporate Registration</h1>
+                  <p className="text-gray-600">Register new corporate clients</p>
+                </div>
+              </div>
+              <CorporateRegistration />
+            </div>
+          )}
+
+          {/* Corporate Pricing */}
+          {activeTab === 'corporatePricing' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Corporate Pricing</h1>
+                  <p className="text-gray-600">Manage corporate pricing plans</p>
+                </div>
+              </div>
+              <CorporatePricing />
+            </div>
+          )}
+
+          {/* Corporate Approval */}
+          {activeTab === 'corporateApproval' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Corporate Approval</h1>
+                  <p className="text-gray-600">Approve corporate client applications</p>
+                </div>
+              </div>
+              <CorporateApproval />
+            </div>
+          )}
+
+          {/* Consignment Management */}
+          {activeTab === 'consignmentManagement' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Consignment Management</h1>
+                  <p className="text-gray-600">View and manage consignments</p>
+                </div>
+              </div>
+              <ConsignmentManagement />
+            </div>
+          )}
+
+          {/* Courier Requests */}
+          {activeTab === 'courierRequests' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Courier Requests</h1>
+                  <p className="text-gray-600">View and manage courier requests</p>
+                </div>
+              </div>
+              <CourierRequests />
+            </div>
+          )}
+
+          {/* Invoice Management */}
+          {activeTab === 'invoiceManagement' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Invoice Management</h1>
+                  <p className="text-gray-600">View and manage invoices</p>
+                </div>
+              </div>
+              <InvoiceManagement />
+            </div>
+          )}
+
+          {/* Bagging Management */}
+          {activeTab === 'baggingManagement' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Bagging Management</h1>
+                  <p className="text-gray-600">Manage bagging operations and route-based bagging</p>
+                </div>
+              </div>
+              <BaggingManagement />
+            </div>
+          )}
+
+          {/* Received Orders */}
+          {activeTab === 'receivedOrders' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Received Orders</h1>
+                  <p className="text-gray-600">Manage received orders and barcode scanning</p>
+                </div>
+              </div>
+              <ReceivedOrders />
+            </div>
+          )}
+
+          {/* Manage Orders */}
+          {activeTab === 'manageOrders' && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-800">Manage Orders</h1>
+                  <p className="text-gray-600">Manage and edit order details</p>
+                </div>
+              </div>
+              <ManageOrders />
+            </div>
+          )}
+
+          {activeTab === 'admins' && user?.adminInfo && user?.adminInfo?.role === 'super_admin' && (
+            <AdminManagement />
+          )}
+          {activeTab === 'admins' && (!user?.adminInfo || user?.adminInfo?.role !== 'super_admin') && (
+            <div className="flex flex-col items-center justify-center h-96 bg-white rounded-xl border border-gray-100">
+              <Shield className="h-16 w-16 text-gray-300 mb-4" />
+              <h3 className="text-xl font-semibold text-gray-600 mb-2">Super Admin Access Required</h3>
+              <p className="text-gray-500 text-center max-w-md">
+                You need super administrator privileges to access this section. 
+                Please contact your system administrator if you believe you should have access.
+              </p>
+            </div>
           )}
         </div>
-      </motion.div>
+      </main>
     </div>
   );
 };

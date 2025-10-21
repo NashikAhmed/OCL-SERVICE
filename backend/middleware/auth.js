@@ -1,6 +1,7 @@
 import jwt from 'jsonwebtoken';
 import Admin from '../models/Admin.js';
 import OfficeUser from '../models/OfficeUser.js';
+import CorporateData from '../models/CorporateData.js';
 
 // Generate JWT token
 export const generateToken = (userId, type = 'admin') => {
@@ -207,17 +208,155 @@ export const authenticateAdminOrOfficeAdmin = async (req, res, next) => {
   }
 };
 
-// Middleware to validate admin login input
+// Middleware to verify JWT token for corporate routes
+export const authenticateCorporate = async (req, res, next) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (!token) {
+      return res.status(401).json({ 
+        error: 'Access denied. No token provided.' 
+      });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'ocl-admin-secret-key-2024');
+    
+    // Check if token is for corporate
+    if (decoded.type !== 'corporate') {
+      return res.status(401).json({ 
+        error: 'Invalid token type for corporate access.' 
+      });
+    }
+    
+    const corporate = await CorporateData.findById(decoded.userId).select('-password -generatedPassword');
+    
+    if (!corporate) {
+      return res.status(401).json({ 
+        error: 'Invalid token. Corporate account not found.' 
+      });
+    }
+
+    if (!corporate.isActive) {
+      return res.status(401).json({ 
+        error: 'Corporate account is deactivated.' 
+      });
+    }
+
+    req.corporate = corporate;
+    next();
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ 
+        error: 'Token expired. Please login again.' 
+      });
+    } else if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ 
+        error: 'Invalid token.' 
+      });
+    } else {
+      console.error('Auth middleware error:', error);
+      return res.status(500).json({ 
+        error: 'Authentication error.' 
+      });
+    }
+  }
+};
+
+// Generic middleware to verify JWT token (works for admin, office, and corporate)
+export const authenticateToken = async (req, res, next) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (!token) {
+      return res.status(401).json({ 
+        error: 'Access denied. No token provided.' 
+      });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'ocl-admin-secret-key-2024');
+    
+    // Check token type and authenticate accordingly
+    if (decoded.type === 'admin') {
+      const admin = await Admin.findById(decoded.userId).select('-password');
+      
+      if (!admin || !admin.isActive) {
+        return res.status(401).json({ 
+          error: 'Invalid token. Admin not found.' 
+        });
+      }
+
+      req.user = admin;
+      req.admin = admin;
+      next();
+      return;
+    }
+    
+    if (decoded.type === 'office') {
+      const user = await OfficeUser.findById(decoded.userId).select('-password');
+      
+      if (!user || !user.isActive) {
+        return res.status(401).json({ 
+          error: 'Invalid token. User not found.' 
+        });
+      }
+
+      req.user = user;
+      next();
+      return;
+    }
+    
+    if (decoded.type === 'corporate') {
+      const corporate = await CorporateData.findById(decoded.userId).select('-password -generatedPassword');
+      
+      if (!corporate || !corporate.isActive) {
+        return res.status(401).json({ 
+          error: 'Invalid token. Corporate account not found.' 
+        });
+      }
+
+      req.user = corporate;
+      req.corporate = corporate;
+      next();
+      return;
+    }
+    
+    return res.status(401).json({ 
+      error: 'Invalid token type.' 
+    });
+    
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ 
+        error: 'Token expired. Please login again.' 
+      });
+    } else if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ 
+        error: 'Invalid token.' 
+      });
+    } else {
+      console.error('Auth middleware error:', error);
+      return res.status(500).json({ 
+        error: 'Authentication error.' 
+      });
+    }
+  }
+};
+
+// Middleware to validate login input (works for admin, office, and corporate)
 export const validateLoginInput = (req, res, next) => {
-  const { email, password } = req.body;
+  const { email, password, username } = req.body;
   
-  if (!email || !password) {
+  // For corporate login, username can be email or phone
+  const loginField = email || username;
+  
+  if (!loginField || !password) {
     return res.status(400).json({ 
-      error: 'Email and password are required.' 
+      error: 'Username/Email and password are required.' 
     });
   }
   
-  if (!email.includes('@') || email.length < 5) {
+  // For email-based logins, validate email format
+  if (email && (!email.includes('@') || email.length < 5)) {
     return res.status(400).json({ 
       error: 'Please enter a valid email address.' 
     });

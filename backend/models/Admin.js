@@ -32,6 +32,8 @@ const adminSchema = new mongoose.Schema({
     userManagement: { type: Boolean, default: false },
     pincodeManagement: { type: Boolean, default: false },
     addressForms: { type: Boolean, default: false },
+    coloaderRegistration: { type: Boolean, default: false },
+    consignmentManagement: { type: Boolean, default: false },
     reports: { type: Boolean, default: false },
     settings: { type: Boolean, default: false }
   },
@@ -63,8 +65,7 @@ const adminSchema = new mongoose.Schema({
   collection: 'admins'
 });
 
-// Create indexes
-adminSchema.index({ email: 1 }, { unique: true });
+// Create indexes (removed duplicate email index since it's already unique)
 adminSchema.index({ isActive: 1 });
 adminSchema.index({ role: 1 });
 
@@ -115,6 +116,8 @@ adminSchema.statics.createDefaultAdmin = async function() {
         userManagement: true,
         pincodeManagement: true,
         addressForms: true,
+        coloaderRegistration: true,
+        consignmentManagement: true,
         reports: true,
         settings: true
       },

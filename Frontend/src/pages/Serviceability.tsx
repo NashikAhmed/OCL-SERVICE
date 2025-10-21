@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { MapPin, CheckCircle, XCircle, Upload, Download, Building2, Clock, Truck } from "lucide-react";
+import { MapPin, CheckCircle, XCircle, Upload, Download, Building2, Clock, Truck, Package } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -15,6 +15,7 @@ interface ServiceabilityResult {
   pincode: string;
   serviceable: boolean;
   services: string[];
+  bulkOrderAvailable?: boolean;
   nearestBranch?: {
     name: string;
     distance: string;
@@ -38,6 +39,7 @@ const Serviceability = () => {
       pincode: "110001",
       serviceable: true,
       services: ["Standard", "Express", "Priority"],
+      bulkOrderAvailable: true,
       nearestBranch: {
         name: "New Delhi Hub",
         distance: "2.5 km",
@@ -49,6 +51,7 @@ const Serviceability = () => {
       pincode: "400001",
       serviceable: true,
       services: ["Standard", "Express"],
+      bulkOrderAvailable: false,
       nearestBranch: {
         name: "Mumbai Central",
         distance: "5.2 km",
@@ -60,6 +63,7 @@ const Serviceability = () => {
       pincode: "560001",
       serviceable: true,
       services: ["Standard", "ODA"],
+      bulkOrderAvailable: true,
       nearestBranch: {
         name: "Bangalore Tech Park",
         distance: "8.1 km",
@@ -71,6 +75,7 @@ const Serviceability = () => {
       pincode: "999999",
       serviceable: false,
       services: [],
+      bulkOrderAvailable: false,
       deliveryDays: "Not Available"
     }
   };
@@ -151,9 +156,9 @@ const Serviceability = () => {
     if (results.length === 0) return;
     
     const csv = [
-      "Pincode,Serviceable,Services,Nearest Branch,Distance,Delivery Days",
+      "Pincode,Serviceable,Services,Bulk Order Available,Nearest Branch,Distance,Delivery Days",
       ...results.map(r => 
-        `${r.pincode},${r.serviceable ? "Yes" : "No"},"${r.services.join("; ")}","${r.nearestBranch?.name || "N/A"}","${r.nearestBranch?.distance || "N/A"}","${r.deliveryDays || "N/A"}"`
+        `${r.pincode},${r.serviceable ? "Yes" : "No"},"${r.services.join("; ")}",${r.bulkOrderAvailable ? "Yes" : "No"},"${r.nearestBranch?.name || "N/A"}","${r.nearestBranch?.distance || "N/A"}","${r.deliveryDays || "N/A"}"`
       )
     ].join("\n");
     
@@ -224,7 +229,7 @@ const Serviceability = () => {
             >
               <Card className="border-2 border-brand-red bg-card-light">
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
+                  <CardTitle className="flex items-center gap-2" style={{ fontFamily: 'Calibri, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' }}>
                     <MapPin className="w-5 h-5 text-brand-red" />
                     Check Serviceability
                   </CardTitle>
@@ -370,20 +375,34 @@ const Serviceability = () => {
                             </div>
 
                             {result.serviceable && (
-                              <div className="grid md:grid-cols-3 gap-4 text-sm">
-                                <div>
-                                  <div className="flex items-center gap-1 text-muted-foreground mb-1">
-                                    <Truck className="w-4 h-4" />
-                                    Services
+                              <div className="space-y-4">
+                                <div className="grid md:grid-cols-4 gap-4 text-sm">
+                                  <div>
+                                    <div className="flex items-center gap-1 text-muted-foreground mb-1">
+                                      <Truck className="w-4 h-4" />
+                                      Services
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {result.services.map(service => (
+                                        <Badge key={service} variant="secondary" className="text-xs">
+                                          {service}
+                                        </Badge>
+                                      ))}
+                                    </div>
                                   </div>
-                                  <div className="flex flex-wrap gap-1">
-                                    {result.services.map(service => (
-                                      <Badge key={service} variant="secondary" className="text-xs">
-                                        {service}
-                                      </Badge>
-                                    ))}
+
+                                  <div>
+                                    <div className="flex items-center gap-1 text-muted-foreground mb-1">
+                                      <Package className="w-4 h-4" />
+                                      Bulk Orders
+                                    </div>
+                                    <Badge 
+                                      variant={result.bulkOrderAvailable ? "default" : "outline"}
+                                      className={`text-xs ${result.bulkOrderAvailable ? 'bg-blue-600 text-white' : 'text-gray-600'}`}
+                                    >
+                                      {result.bulkOrderAvailable ? 'Available' : 'Not Available'}
+                                    </Badge>
                                   </div>
-                                </div>
 
                                 {result.nearestBranch && (
                                   <div>
@@ -400,12 +419,13 @@ const Serviceability = () => {
                                   </div>
                                 )}
 
-                                <div>
-                                  <div className="flex items-center gap-1 text-muted-foreground mb-1">
-                                    <Clock className="w-4 h-4" />
-                                    Delivery Time
+                                  <div>
+                                    <div className="flex items-center gap-1 text-muted-foreground mb-1">
+                                      <Clock className="w-4 h-4" />
+                                      Delivery Time
+                                    </div>
+                                    <div className="font-medium">{result.deliveryDays}</div>
                                   </div>
-                                  <div className="font-medium">{result.deliveryDays}</div>
                                 </div>
                               </div>
                             )}

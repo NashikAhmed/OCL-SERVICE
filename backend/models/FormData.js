@@ -178,6 +178,7 @@ const formSchema = new mongoose.Schema({
       mode: { type: String, trim: true },
       insurance: { type: String, trim: true },
       riskCoverage: { type: String, trim: true },
+      packagingType: { type: String, trim: true },
       dimensions: [{
         length: { type: Number },
         breadth: { type: Number },
@@ -186,7 +187,10 @@ const formSchema = new mongoose.Schema({
       }],
       actualWeight: { type: Number },
       volumetricWeight: { type: Number },
-      chargeableWeight: { type: Number }
+      chargeableWeight: { type: Number },
+      totalPackages: { type: String, trim: true },
+      description: { type: String, trim: true },
+      specialInstructions: { type: String, trim: true }
     }, { _id: false }),
     default: undefined
   },
@@ -196,16 +200,109 @@ const formSchema = new mongoose.Schema({
       packageImages: [{ type: String }],
       contentDescription: { type: String, trim: true },
       invoiceNumber: { type: String, trim: true },
+      invoiceDate: { type: String, trim: true },
       invoiceValue: { type: Number },
       invoiceImages: [{ type: String }],
       eWaybillNumber: { type: String, trim: true },
+      eWaybillDate: { type: String, trim: true },
+      eWaybillValidity: { type: String, trim: true },
+      materials: { type: String, trim: true },
       acceptTerms: { type: Boolean }
     }, { _id: false }),
     default: undefined
   },
   paymentData: {
     type: new mongoose.Schema({
-      mode: { type: String, trim: true }
+      mode: { type: String, trim: true },
+      deliveryType: { type: String, trim: true }
+    }, { _id: false }),
+    default: undefined
+  },
+  billData: {
+    type: new mongoose.Schema({
+      partyType: { type: String, trim: true },
+      otherPartyDetails: {
+        concernName: { type: String, trim: true },
+        companyName: { type: String, trim: true },
+        phoneNumber: { type: String, trim: true },
+        email: { type: String, trim: true, lowercase: true },
+        pincode: { type: String, trim: true },
+        state: { type: String, trim: true },
+        city: { type: String, trim: true },
+        district: { type: String, trim: true },
+        area: { type: String, trim: true },
+        locality: { type: String, trim: true },
+        flatBuilding: { type: String, trim: true },
+        landmark: { type: String, trim: true },
+        gstNumber: { type: String, trim: true }
+      },
+      billType: { type: String, trim: true }
+    }, { _id: false }),
+    default: undefined
+  },
+  detailsData: {
+    type: new mongoose.Schema({
+      freightCharge: { type: String, trim: true },
+      awbCharge: { type: String, trim: true },
+      localCollection: { type: String, trim: true },
+      doorDelivery: { type: String, trim: true },
+      loadingUnloading: { type: String, trim: true },
+      demurrageCharge: { type: String, trim: true },
+      ddaCharge: { type: String, trim: true },
+      hamaliCharge: { type: String, trim: true },
+      packingCharge: { type: String, trim: true },
+      otherCharge: { type: String, trim: true },
+      fuelCharge: { type: String, trim: true },
+      total: { type: Number },
+      fuelSurcharge: { type: Number },
+      cgst: { type: Number },
+      sgst: { type: Number },
+      igst: { type: Number },
+      grandTotal: { type: Number }
+    }, { _id: false }),
+    default: undefined
+  },
+  // Numeric consignment number (unique booking identifier)
+  consignmentNumber: { type: Number, index: true, default: undefined },
+  // Assignment data
+  assignmentData: {
+    type: new mongoose.Schema({
+      // Single leg assignment (legacy)
+      assignedColoader: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Coloader',
+        default: null
+      },
+      assignedColoaderName: { type: String, trim: true },
+      assignedAt: { type: Date, default: null },
+      assignedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Admin',
+        default: null
+      },
+      // Multi-leg assignment
+      totalLegs: { type: Number, default: 1 },
+      legAssignments: [{
+        legNumber: { type: Number, required: true },
+        coloaderId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Coloader',
+          required: true
+        },
+        coloaderName: { type: String, required: true },
+        assignedAt: { type: Date, default: Date.now },
+        assignedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Admin',
+          required: true
+        }
+      }],
+      status: {
+        type: String,
+        enum: ['booked', 'assigned', 'partially_assigned', 'picked_up', 'in_transit', 'delivered', 'failed', 'received'],
+        default: 'booked'
+      },
+      notes: { type: String, trim: true }
     }, { _id: false }),
     default: undefined
   }
@@ -363,11 +460,12 @@ formSchema.pre('save', function(next) {
     this.receiverDistrict && this.receiverArea && this.receiverAddressLine1);
 
   // If full booking data present, consider completed as well
-  const hasFull = !!(this.originData && this.destinationData && this.shipmentData && this.uploadData && this.paymentData);
+  const hasFull = !!(this.originData && this.destinationData && this.shipmentData && this.uploadData && this.paymentData && this.billData && this.detailsData);
   if (hasFull) {
     this.formCompleted = true;
   } else {
-    this.formCompleted = this.senderCompleted && this.receiverCompleted;
+    // For normal address forms, keep status as booked (false) instead of complete
+    this.formCompleted = false;
   }
   
   next();

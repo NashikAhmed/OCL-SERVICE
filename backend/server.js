@@ -2,24 +2,87 @@ import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
+import multer from "multer";
+import path from "path";
+import { fileURLToPath } from "url";
+import fs from "fs";
 
 import pincodeRoutes from "./routes/pincode.js";
 import adminRoutes from "./routes/admin.js";
 import officeRoutes from "./routes/office.js";
 import uploadRoutes from "./routes/upload.js";
+import coloaderRoutes from "./routes/coloader.js";
+import corporateRoutes from "./routes/corporate.js";
+import settlementRoutes from "./routes/settlement.js";
+import invoicePdfRoutes from "./routes/invoice-pdf.js";
+import courierComplaintRoutes from "./routes/courier-complaints.js";
+import employeeRoutes from "./routes/employee.js";
+import otpRoutes from "./routes/otp.js";
 import FormData from "./models/FormData.js";
 import PinCodeArea from "./models/PinCodeArea.js";
 import CorporateData from "./models/CorporateData.js";
+import CorporatePricing from "./models/CorporatePricing.js";
 import Admin from "./models/Admin.js";
 import OfficeUser from "./models/OfficeUser.js";
+import Coloader from "./models/Coloader.js";
+import Employee from "./models/Employee.js";
 
 dotenv.config();
 const app = express();
+
+// Configure logo upload
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Ensure corporate logos directory exists
+const corporateLogosDir = path.join(__dirname, 'uploads/corporate-logos');
+if (!fs.existsSync(corporateLogosDir)) {
+  fs.mkdirSync(corporateLogosDir, { recursive: true });
+}
+
+// Configure multer for corporate logo upload during registration
+const logoStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, corporateLogosDir);
+  },
+  filename: function (req, file, cb) {
+    // Generate unique filename with timestamp for registration
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const fileExtension = path.extname(file.originalname);
+    const fileName = `temp-${uniqueSuffix}${fileExtension}`;
+    cb(null, fileName);
+  }
+});
+
+const logoUpload = multer({
+  storage: logoStorage,
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed for company logo!'), false);
+    }
+  },
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit for logo
+    files: 1 // Only one logo file
+  }
+});
 
 // Middlewares
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Add multer middleware for multipart form data (for file uploads)
+app.use((req, res, next) => {
+  if (req.path === '/api/corporate/register' && req.method === 'POST') {
+    // Skip multer for corporate registration as it's handled by the route
+    next();
+  } else {
+    next();
+  }
+});
 
 // Add request logging for debugging
 app.use((req, res, next) => {
@@ -32,6 +95,19 @@ app.use("/api/pincode", pincodeRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/office", officeRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/coloader", coloaderRoutes);
+app.use("/api/corporate", corporateRoutes);
+app.use("/api/settlement", settlementRoutes);
+app.use("/api/invoice", invoicePdfRoutes);
+app.use("/api/courier-complaints", courierComplaintRoutes);
+app.use("/api/employee", employeeRoutes);
+app.use("/api/otp", otpRoutes);
+
+// Serve corporate logos
+app.use('/uploads/corporate-logos', express.static(path.join(__dirname, 'uploads/corporate-logos')));
+
+// Serve employee documents
+app.use('/uploads/employee-docs', express.static(path.join(__dirname, 'uploads/employee-docs')));
 
 // FORM DATA ROUTES
 
@@ -114,11 +190,9 @@ app.post("/api/form", async (req, res) => {
         });
       }
     } else if (formType === 'full') {
-      // Try to find existing doc by origin email (if provided)
-      const originEmail = req.body?.originData?.email?.toLowerCase();
-      if (originEmail) {
-        existingForm = await FormData.findOne({ senderEmail: originEmail });
-      }
+      // For full booking submissions, always create new forms
+      // Don't look for existing forms to allow multiple bookings with same email
+      existingForm = null;
     }
     
     // Helper: normalize possibly mixed inputs to array of strings
@@ -187,6 +261,13 @@ app.post("/api/form", async (req, res) => {
       updateData.destinationData = destinationData;
       updateData.shipmentData = shipmentData;
       updateData.uploadData = sanitizedUploadData;
+      // Extract numeric consignment number from uploadData.invoiceNumber if present
+      if (sanitizedUploadData?.invoiceNumber) {
+        const numericCn = parseInt(String(sanitizedUploadData.invoiceNumber).replace(/[^0-9]/g, ''));
+        if (Number.isFinite(numericCn)) {
+          updateData.consignmentNumber = numericCn;
+        }
+      }
       updateData.paymentData = paymentData;
       // Also backfill flat fields for backward compatibility/queries
       if (originData) {
@@ -232,6 +313,7 @@ app.post("/api/form", async (req, res) => {
       console.log('Form data created successfully:', savedForm._id);
     }
     
+
     res.json({ 
       success: true, 
       data: savedForm,
@@ -289,6 +371,51 @@ app.get("/api/form/check/:email", async (req, res) => {
     
   } catch (err) {
     console.error('Error checking form status:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Check if sender phone number exists in address form data
+app.get("/api/form/check-phone/:phone", async (req, res) => {
+  try {
+    const phone = req.params.phone;
+    
+    // Clean the phone number (remove any non-digits)
+    const cleanPhone = phone.replace(/\D/g, '');
+    
+    // Check if phone number exists in sender phone field
+    const form = await FormData.findOne({ 
+      senderPhone: cleanPhone 
+    });
+    
+    if (!form) {
+      return res.json({ 
+        success: true, 
+        exists: false,
+        data: null
+      });
+    }
+    
+    res.json({ 
+      success: true, 
+      exists: true,
+      data: {
+        senderName: form.senderName,
+        senderEmail: form.senderEmail,
+        senderPhone: form.senderPhone,
+        senderPincode: form.senderPincode,
+        senderState: form.senderState,
+        senderCity: form.senderCity,
+        senderDistrict: form.senderDistrict,
+        senderArea: form.senderArea,
+        senderAddressLine1: form.senderAddressLine1,
+        senderAddressLine2: form.senderAddressLine2,
+        senderLandmark: form.senderLandmark
+      }
+    });
+    
+  } catch (err) {
+    console.error('Error checking phone number:', err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -662,9 +789,24 @@ app.get("/api/search", async (req, res) => {
 // CORPORATE REGISTRATION ROUTES
 
 // Register new corporate
-app.post("/api/corporate/register", async (req, res) => {
+app.post("/api/corporate/register", logoUpload.single('logo'), async (req, res) => {
   try {
     console.log('Received corporate registration data:', req.body);
+    
+    // Handle logo upload errors
+    if (req.fileValidationError) {
+      return res.status(400).json({
+        error: 'Invalid file type',
+        message: 'Only image files are allowed for company logo'
+      });
+    }
+    
+    if (req.file && req.file.size > 5 * 1024 * 1024) {
+      return res.status(400).json({
+        error: 'File too large',
+        message: 'Logo file size must be less than 5MB'
+      });
+    }
     
     const {
       companyName,
@@ -679,12 +821,12 @@ app.post("/api/corporate/register", async (req, res) => {
       birthday,
       anniversary,
       contactNumber,
-      addressType,
-      password
+      email,
+      addressType
     } = req.body;
     
-    // Validate required fields
-    const requiredFields = ['companyName', 'companyAddress', 'pin', 'city', 'state', 'locality', 'contactNumber', 'password'];
+    // Validate required fields (password is auto-generated, not required from frontend)
+    const requiredFields = ['companyName', 'companyAddress', 'pin', 'city', 'state', 'locality', 'contactNumber', 'email'];
     const missingFields = requiredFields.filter(field => !req.body[field] || req.body[field].toString().trim() === '');
     
     if (missingFields.length > 0) {
@@ -693,17 +835,18 @@ app.post("/api/corporate/register", async (req, res) => {
       });
     }
 
-    // Check if company with same name and contact already exists
+    // Check if company with same name, contact, or email already exists
     const existingCompany = await CorporateData.findOne({
       $or: [
         { companyName: companyName.trim() },
-        { contactNumber: contactNumber.replace(/\D/g, '') }
+        { contactNumber: contactNumber.replace(/\D/g, '') },
+        { email: email.trim().toLowerCase() }
       ]
     });
 
     if (existingCompany) {
       return res.status(409).json({ 
-        error: 'A company with this name or contact number already exists' 
+        error: 'A company with this name, contact number, or email already exists' 
       });
     }
 
@@ -720,6 +863,24 @@ app.post("/api/corporate/register", async (req, res) => {
     // Generate unique corporate ID
     const corporateId = await CorporateData.generateCorporateId(companyName);
     
+    // Handle logo upload if provided
+    let logoPath = null;
+    if (req.file) {
+      // Rename the temporary file to use corporate ID
+      const fileExtension = path.extname(req.file.filename);
+      const newFileName = `${corporateId}${fileExtension}`;
+      const oldPath = path.join(corporateLogosDir, req.file.filename);
+      const newPath = path.join(corporateLogosDir, newFileName);
+      
+      // Rename the file
+      fs.renameSync(oldPath, newPath);
+      logoPath = `/uploads/corporate-logos/${newFileName}`;
+    }
+    
+    // Generate username and password
+    const username = CorporateData.generateUsername(email, contactNumber);
+    const generatedPassword = CorporateData.generatePassword();
+    
     // Create new corporate registration
     const corporateData = new CorporateData({
       corporateId,
@@ -735,11 +896,54 @@ app.post("/api/corporate/register", async (req, res) => {
       birthday: birthday || null,
       anniversary: anniversary || null,
       contactNumber: contactNumber.trim(),
+      email: email.trim().toLowerCase(),
       addressType: addressType || 'corporate',
-      password: password
+      password: generatedPassword, // Use generated password instead of provided one
+      username: username,
+      generatedPassword: generatedPassword,
+      logo: logoPath
     });
 
     await corporateData.save();
+    
+    // Send email notification with credentials
+    let emailResult = null;
+    try {
+      console.log('📧 Attempting to send corporate registration email...');
+      
+      // Import email service
+      const emailService = (await import('./services/emailService.js')).default;
+      
+      // Prepare data for email
+      const emailData = {
+        corporateId: corporateData.corporateId,
+        companyName: corporateData.companyName,
+        email: corporateData.email,
+        contactNumber: corporateData.contactNumber,
+        username: corporateData.username,
+        password: corporateData.generatedPassword
+      };
+      
+      // Send email
+      emailResult = await emailService.sendCorporateRegistrationEmail(emailData);
+      
+      // Mark email as sent
+      await corporateData.markEmailSent();
+      
+      console.log(`✅ Corporate registration email sent to ${email} for company: ${companyName}`);
+    } catch (emailError) {
+      console.error('❌ Failed to send corporate registration email:', emailError);
+      console.error('❌ Email error details:', emailError.message);
+      
+      // Don't fail the entire request if email fails
+      emailResult = { 
+        error: emailError.message,
+        success: false 
+      };
+      
+      // Still log the registration as successful
+      console.log(`⚠️ Corporate registration successful but email failed: ${companyName}`);
+    }
     
     console.log('Corporate registration successful:', corporateId);
     
@@ -747,17 +951,35 @@ app.post("/api/corporate/register", async (req, res) => {
       success: true, 
       message: 'Corporate registration successful!',
       corporateId: corporateId,
+      logo: logoPath,
       data: {
         corporateId: corporateData.corporateId,
         companyName: corporateData.companyName,
         city: corporateData.city,
         state: corporateData.state,
-        registrationDate: corporateData.registrationDate
+        logo: corporateData.logo,
+        registrationDate: corporateData.registrationDate,
+        username: corporateData.username,
+        emailSent: corporateData.emailSent,
+        emailResult: emailResult
       }
     });
     
   } catch (err) {
     console.error('Error in corporate registration:', err);
+    
+    // Clean up uploaded logo file if registration fails
+    if (req.file) {
+      try {
+        const filePath = path.join(corporateLogosDir, req.file.filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+          console.log('Cleaned up uploaded logo file:', req.file.filename);
+        }
+      } catch (cleanupError) {
+        console.error('Error cleaning up logo file:', cleanupError);
+      }
+    }
     
     if (err.name === 'ValidationError') {
       const validationErrors = Object.values(err.errors).map(e => e.message);
@@ -781,7 +1003,9 @@ app.post("/api/corporate/register", async (req, res) => {
 // Get corporate by ID
 app.get("/api/corporate/:corporateId", async (req, res) => {
   try {
-    const corporate = await CorporateData.findByCorporateId(req.params.corporateId);
+    const corporate = await CorporateData.findByCorporateId(req.params.corporateId)
+      .select('corporateId companyName companyAddress pin city state locality flatNumber landmark gstNumber birthday anniversary contactNumber email addressType username emailSent emailSentAt isActive registrationDate createdAt updatedAt')
+      .lean();
     
     if (!corporate) {
       return res.status(404).json({ 
@@ -829,6 +1053,7 @@ app.get("/api/corporate", async (req, res) => {
     }
 
     const corporates = await CorporateData.find(filters)
+      .select('corporateId companyName companyAddress pin city state locality flatNumber landmark gstNumber birthday anniversary contactNumber email addressType username emailSent emailSentAt isActive registrationDate createdAt updatedAt')
       .sort({ registrationDate: -1 })
       .skip(skip)
       .limit(limit)
@@ -864,7 +1089,9 @@ app.get("/api/corporate/search/:query", async (req, res) => {
       });
     }
     
-    const results = await CorporateData.searchCompanies(query.trim());
+    const results = await CorporateData.searchCompanies(query.trim())
+      .select('corporateId companyName companyAddress pin city state locality flatNumber landmark gstNumber birthday anniversary contactNumber email addressType isActive registrationDate createdAt updatedAt')
+      .lean();
     
     res.json({ 
       success: true, 
@@ -1012,6 +1239,54 @@ app.get("/api/stats/corporate", async (req, res) => {
   }
 });
 
+// Test CorporatePricing endpoint
+app.get("/api/test-corporate-pricing", async (req, res) => {
+  try {
+    console.log('Testing CorporatePricing model...');
+    
+    // Test if model can be accessed
+    const count = await CorporatePricing.countDocuments();
+    console.log('CorporatePricing count:', count);
+    
+    // Test creating a simple document
+    const testPricing = new CorporatePricing({
+      name: 'Test Pricing ' + Date.now(),
+      status: 'pending',
+      createdBy: new mongoose.Types.ObjectId(), // Use a dummy ObjectId for testing
+      doxPricing: {
+        '01gm-250gm': {
+          assam: 10,
+          neBySurface: 15,
+          neByAirAgtImp: 20,
+          restOfIndia: 25
+        }
+      }
+    });
+    
+    const saved = await testPricing.save();
+    console.log('Test pricing saved:', saved._id);
+    
+    // Clean up test document
+    await CorporatePricing.findByIdAndDelete(saved._id);
+    console.log('Test pricing cleaned up');
+    
+    res.json({
+      success: true,
+      message: 'CorporatePricing model is working correctly',
+      count: count,
+      testId: saved._id
+    });
+    
+  } catch (error) {
+    console.error('CorporatePricing test error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
 // Health check endpoint
 app.get("/api/health", async (req, res) => {
   try {
@@ -1024,6 +1299,8 @@ app.get("/api/health", async (req, res) => {
     const completedFormCount = await FormData.countDocuments({ formCompleted: true });
     const pincodeCount = await PinCodeArea.countDocuments();
     const corporateCount = await CorporateData.countDocuments();
+    const coloaderCount = await Coloader.countDocuments();
+    const corporatePricingCount = await CorporatePricing.countDocuments();
     
     res.json({ 
       status: "Server is running",
@@ -1036,7 +1313,9 @@ app.get("/api/health", async (req, res) => {
         forms: formCount,
         completedForms: completedFormCount,
         pincodeAreas: pincodeCount,
-        corporateRegistrations: corporateCount
+        corporateRegistrations: corporateCount,
+        coloaderRegistrations: coloaderCount,
+        corporatePricing: corporatePricingCount
       },
       version: "3.2.0"
     });
@@ -1101,10 +1380,8 @@ app.get("/api/export", async (req, res) => {
 const startServer = async () => {
   try {
     // Connect to MongoDB Atlas
-    await mongoose.connect(process.env.MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
+    const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/ocl';
+    await mongoose.connect(mongoUri);
     console.log("✅ MongoDB Atlas Connected Successfully");
     
     // Verify pincode collection exists and has data
@@ -1124,6 +1401,10 @@ const startServer = async () => {
     const corporateCount = await CorporateData.countDocuments();
     console.log(`🏢 CorporateData collection has ${corporateCount} records`);
     
+    // Check coloader collection
+    const coloaderCount = await Coloader.countDocuments();
+    console.log(`🚛 Coloader collection has ${coloaderCount} records`);
+    
     // Initialize default admin if none exists
     await Admin.createDefaultAdmin();
     const adminCount = await Admin.countDocuments();
@@ -1132,6 +1413,10 @@ const startServer = async () => {
     // Check office users collection
     const officeUserCount = await OfficeUser.countDocuments();
     console.log(`🏢 OfficeUser collection has ${officeUserCount} records`);
+    
+    // Check employees collection
+    const employeeCount = await Employee.countDocuments();
+    console.log(`👥 Employee collection has ${employeeCount} records`);
     
     // Start the server
     const PORT = process.env.PORT || 5000;
@@ -1145,6 +1430,7 @@ const startServer = async () => {
       console.log(`🏢 Corporate stats: http://localhost:${PORT}/api/stats/corporate`);
       console.log(`🔎 Search API: http://localhost:${PORT}/api/search?q=<query>`);
       console.log(`🛒 Corporate API: http://localhost:${PORT}/api/corporate`);
+      console.log(`👥 Employee API: http://localhost:${PORT}/api/employee`);
     });
     
   } catch (err) {
@@ -1158,25 +1444,31 @@ const startServer = async () => {
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
 
-function gracefulShutdown(signal) {
+async function gracefulShutdown(signal) {
   console.log(`\n${signal} received, shutting down gracefully...`);
   
-  mongoose.connection.close(() => {
+  try {
+    await mongoose.connection.close();
     console.log('MongoDB Atlas connection closed');
     process.exit(0);
-  });
+  } catch (error) {
+    console.error('Error closing MongoDB connection:', error);
+    process.exit(1);
+  }
 }
 
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (err) => {
   console.error('Unhandled Promise Rejection:', err);
-  gracefulShutdown('UNHANDLED_REJECTION');
+  // Don't call gracefulShutdown here to prevent infinite loops
+  // Just log the error and continue
 });
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
-  gracefulShutdown('UNCAUGHT_EXCEPTION');
+  // Exit immediately for uncaught exceptions
+  process.exit(1);
 });
 
 // Start the server
