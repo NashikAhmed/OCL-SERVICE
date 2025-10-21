@@ -132,7 +132,7 @@ interface AddressFormResponse {
   };
 }
 
-const ManageOrders = () => {
+const AssignColoader = () => {
   const [addressForms, setAddressForms] = useState<AddressFormData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -168,6 +168,7 @@ const ManageOrders = () => {
   // Group assigned orders by path
   const getAssignedPaths = () => {
     const assignedOrders = addressForms.filter(order => order.assignmentData?.assignedColoader);
+    
     const pathGroups: Record<string, {
       route: string;
       orders: AddressFormData[];
@@ -226,6 +227,9 @@ const ManageOrders = () => {
         limit: useLargeLimit ? '1000' : '10' // Use large limit for small datasets
       });
 
+      // Fetch both 'received' and 'assigned' orders for proper display in both tabs
+      // The UI will filter them appropriately
+      
       // Add search filter
       if (searchTerm.trim()) {
         params.append('search', searchTerm.trim());
@@ -1090,6 +1094,7 @@ const ManageOrders = () => {
             totalLegs: 1,
             isEditMode: false
           };
+          
           const resp = await fetch('/api/admin/assign-coloader', {
             method: 'POST',
             headers: {
@@ -1098,6 +1103,7 @@ const ManageOrders = () => {
             },
             body: JSON.stringify(requestBody)
           });
+          
           if (resp.ok) successCount += 1;
         }
         toast({ title: 'Assignment complete', description: `Assigned ${successCount}/${selectedRouteOrders.length} orders for this path` });
@@ -1130,7 +1136,7 @@ const ManageOrders = () => {
       }
 
       // Refresh and reset
-      fetchAddressForms(currentPage);
+      await fetchAddressForms(currentPage);
       setIsAssignModalOpen(false);
       setIsEditMode(false);
       setExistingAssignments([]);
@@ -1196,7 +1202,7 @@ const ManageOrders = () => {
             <Package className="h-6 w-6 text-red-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-800">Manage Orders</h1>
+            <h1 className="text-2xl font-bold text-gray-800">Assign Coloaders</h1>
             <p className="text-red-500">Error loading data</p>
           </div>
         </div>
@@ -1229,10 +1235,10 @@ const ManageOrders = () => {
               </div>
               <div>
                 <CardTitle className="text-lg font-bold" style={{ fontFamily: 'Calibr', fontSize: '32px' }}>
-                  Manage Orders
+                  Assign Coloaders
                 </CardTitle>
                 <p className="text-sm text-gray-500 mt-1" style={{ fontFamily: 'Calibri' }}>
-                  {totalCount} total bookings
+                  {totalCount} received consignments (only consignments marked as 'received' are shown)
                 </p>
               </div>
             </div>
@@ -1278,6 +1284,22 @@ const ManageOrders = () => {
         </div>
         
         <CardContent className="p-6">
+          {/* Workflow Information */}
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-blue-100 rounded-full">
+                <Package className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <h4 className="font-semibold text-blue-800 mb-1">Order Workflow</h4>
+                <p className="text-sm text-blue-700">
+                  Orders appear here only after they are marked as 'received' through the barcode scanning process. 
+                  The workflow is: <strong>Booked</strong> → <strong>Received</strong> (via barcode scan) → <strong>Assign Coloaders</strong> (this page).
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* Normal Assignment Tab */}
           {activeTab === 'normal' && (
             <>
@@ -1328,7 +1350,11 @@ const ManageOrders = () => {
                 Loading paths...
               </div>
             ) : routeKeys.length === 0 ? (
-              <div className="text-center py-12 text-gray-500">No orders found</div>
+              <div className="text-center py-12 text-gray-500">
+                <Package className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                <p className="text-lg font-medium mb-2">No received consignments found</p>
+                <p className="text-sm">Orders will appear here after they are marked as 'received' through barcode scanning.</p>
+              </div>
             ) : routeKeys.filter(key => {
               const routeOrders = ordersByRoute[key] || [];
               return routeOrders.some(order => !order.assignmentData?.assignedColoader);
@@ -1834,4 +1860,4 @@ const ManageOrders = () => {
   );
 };
 
-export default ManageOrders;
+export default AssignColoader;

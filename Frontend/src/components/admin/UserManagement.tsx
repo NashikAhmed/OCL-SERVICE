@@ -527,7 +527,7 @@ const UserManagement = () => {
     if (permissions.corporateApproval) badges.push('Corporate Approval');
     if (permissions.employeeRegistration) badges.push('Employee Registration');
     if (permissions.employeeManagement) badges.push('Employee Management');
-    if (permissions.consignmentManagement) badges.push('Consignment Management');
+    if (permissions.consignmentManagement) badges.push('Assign Consignment');
     if (permissions.courierRequests) badges.push('Courier Requests');
     if (permissions.invoiceManagement) badges.push('Invoice Management');
     return badges;
@@ -1057,7 +1057,7 @@ const UserManagement = () => {
                 </div>
               </div>
 
-              {/* Consignment Management */}
+              {/* Assign Consignment */}
               <div 
                 className={`relative p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 hover:shadow-md ${
                   permissions.consignmentManagement 
@@ -1071,7 +1071,7 @@ const UserManagement = () => {
               >
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
-                    <h3 className="font-semibold text-sm text-gray-800">Consignment Management</h3>
+                    <h3 className="font-semibold text-sm text-gray-800">Assign Consignment</h3>
                     <p className="text-xs text-gray-500 mt-1">Manage consignments</p>
                   </div>
                   <input
@@ -1161,7 +1161,7 @@ const UserManagement = () => {
                 </div>
               </div>
 
-              {/* Received Orders */}
+              {/* Received Consignments */}
               <div 
                 className={`relative p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 hover:shadow-md ${
                   permissions.receivedOrders 
@@ -1175,8 +1175,8 @@ const UserManagement = () => {
               >
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
-                    <h3 className="font-semibold text-sm text-gray-800">Received Orders</h3>
-                    <p className="text-xs text-gray-500 mt-1">Manage received orders</p>
+                    <h3 className="font-semibold text-sm text-gray-800">Received Consignments</h3>
+                    <p className="text-xs text-gray-500 mt-1">Manage received consignments</p>
                   </div>
                   <input
                     type="checkbox"
@@ -1187,7 +1187,7 @@ const UserManagement = () => {
                 </div>
               </div>
 
-              {/* Manage Orders */}
+              {/* Assign Coloaders */}
               <div 
                 className={`relative p-4 border-2 rounded-lg cursor-pointer transition-all duration-200 hover:shadow-md ${
                   permissions.manageOrders 
@@ -1201,7 +1201,7 @@ const UserManagement = () => {
               >
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
-                    <h3 className="font-semibold text-sm text-gray-800">Manage Orders</h3>
+                    <h3 className="font-semibold text-sm text-gray-800">Assign Coloaders</h3>
                     <p className="text-xs text-gray-500 mt-1">Manage and edit orders</p>
                   </div>
                   <input

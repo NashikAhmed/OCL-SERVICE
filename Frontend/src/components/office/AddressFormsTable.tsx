@@ -157,7 +157,7 @@ const AddressFormsTable = () => {
     fetchForms();
   }, [searchTerm, completedFilter, stateFilter]);
 
-  // Refresh when order status changes elsewhere (e.g., Admin Received Orders)
+  // Refresh when order status changes elsewhere (e.g., Admin Received Consignments)
   useEffect(() => {
     const onOrderStatusChanged = () => fetchForms();
     window.addEventListener('orderStatusChanged', onOrderStatusChanged as EventListener);

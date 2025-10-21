@@ -72,7 +72,7 @@ interface ConsignmentUsage {
   status: string;
 }
 
-const ConsignmentManagement = () => {
+const AssignConsignment = () => {
   const [corporates, setCorporates] = useState<Corporate[]>([]);
   const [officeUsers, setOfficeUsers] = useState<OfficeUser[]>([]);
   const [assignments, setAssignments] = useState<ConsignmentAssignment[]>([]);
@@ -440,7 +440,7 @@ const ConsignmentManagement = () => {
             <Package className="h-5 w-5 text-blue-600" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold text-gray-800">Consignment Management</h1>
+            <h1 className="text-xl font-semibold text-gray-800">Assign Consignment</h1>
             <p className="text-sm text-gray-500">Manage consignment assignments and usage</p>
           </div>
         </div>
@@ -1028,4 +1028,4 @@ const ConsignmentManagement = () => {
   );
 };
 
-export default ConsignmentManagement;
+export default AssignConsignment;

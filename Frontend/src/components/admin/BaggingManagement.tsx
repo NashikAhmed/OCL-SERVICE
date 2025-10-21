@@ -59,7 +59,7 @@ const BaggingManagement: React.FC = () => {
   const [emailInput, setEmailInput] = useState('');
   const [sendingEmail, setSendingEmail] = useState(false);
 
-  // Determine expected barcode length by mode of lengths in received orders, fallback to 9
+  // Determine expected barcode length by mode of lengths in received consignments, fallback to 9
   const expectedLength = useMemo(() => {
     const lengths: Record<number, number> = {};
     for (const o of receivedOrders) {
@@ -73,7 +73,7 @@ const BaggingManagement: React.FC = () => {
     return parseInt(entries[0][0], 10);
   }, [receivedOrders]);
 
-  // Fetch received orders
+  // Fetch received consignments
   const fetchReceivedOrders = async () => {
     try {
       setLoading(true);
@@ -84,13 +84,13 @@ const BaggingManagement: React.FC = () => {
           'Content-Type': 'application/json'
         }
       });
-      if (!response.ok) throw new Error('Failed to fetch received orders');
+      if (!response.ok) throw new Error('Failed to fetch received consignments');
       const result = await response.json();
       const data: AddressFormData[] = result.data || [];
       setReceivedOrders(data);
     } catch (error) {
       console.error(error);
-      toast({ title: 'Error', description: 'Failed to load received orders', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Failed to load received consignments', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
@@ -143,7 +143,7 @@ const BaggingManagement: React.FC = () => {
       return;
     }
 
-    // Check if consignment exists anywhere in received orders
+    // Check if consignment exists anywhere in received consignments
     const orderInReceived = receivedOrders.find(o => o.consignmentNumber?.toString() === consignmentNumberStr);
     if (orderInReceived) {
       const scannedRoute = makeRouteKey(orderInReceived);
@@ -156,7 +156,7 @@ const BaggingManagement: React.FC = () => {
       }
     }
 
-    // Find in received orders for the active route (ensures both received + route match)
+    // Find in received consignments for the active route (ensures both received + route match)
     const matchingOrder = (ordersByRoute[activeRoute] || []).find(o => o.consignmentNumber?.toString() === consignmentNumberStr);
 
     if (!matchingOrder) {
@@ -359,7 +359,7 @@ const BaggingManagement: React.FC = () => {
                 Bagging
               </CardTitle>
               <p className="text-sm text-gray-500 mt-1" style={{ fontFamily: 'Calibri' }}>
-                Group received orders by route and scan consignments into bags
+                Group received consignments by route and scan consignments into bags
               </p>
             </div>
           </div>
@@ -378,8 +378,8 @@ const BaggingManagement: React.FC = () => {
             {routeKeys.length === 0 ? (
               <div className="text-center py-8">
                 <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">No Received Orders</h3>
-                <p className="text-gray-600">No orders with status received.</p>
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">No Received Consignments</h3>
+                <p className="text-gray-600">No consignments with status received.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -537,7 +537,7 @@ const BaggingManagement: React.FC = () => {
                 <img src="/assets/ocl-logo.jpg" alt="Company" className="h-8 w-8 rounded-sm object-contain" />
                 <div>
                   <div className="text-base font-semibold">OUR Courier & Logistics</div>
-                  <div className="text-sm text-muted-foreground">Bag Manifest</div>
+                  <div className="text-sm text-muted-foreground">Manifest</div>
                 </div>
               </div>
             </DialogTitle>

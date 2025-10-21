@@ -419,13 +419,13 @@ const UserManagement = () => {
     if (permissions.corporateApproval) badges.push('Corporate Approval');
     if (permissions.employeeRegistration) badges.push('Employee Registration');
     if (permissions.employeeManagement) badges.push('Employee Management');
-    if (permissions.consignmentManagement) badges.push('Consignment Management');
+    if (permissions.consignmentManagement) badges.push('Assign Consignment');
     if (permissions.courierRequests) badges.push('Courier Requests');
     if (permissions.invoiceManagement) badges.push('Invoice Management');
     if (permissions.userManagement) badges.push('User Management');
     if (permissions.baggingManagement) badges.push('Bagging Management');
-    if (permissions.receivedOrders) badges.push('Received Orders');
-    if (permissions.manageOrders) badges.push('Manage Orders');
+    if (permissions.receivedOrders) badges.push('Received Consignments');
+    if (permissions.manageOrders) badges.push('Assign Coloaders');
     return badges;
   };
 
@@ -743,7 +743,7 @@ const UserManagement = () => {
                 />
               </div>
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">Consignment Management</label>
+                <label className="text-sm font-medium">Assign Consignment</label>
                 <input
                   type="checkbox"
                   checked={permissions.consignmentManagement}
@@ -803,7 +803,7 @@ const UserManagement = () => {
                 />
               </div>
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">Received Orders</label>
+                <label className="text-sm font-medium">Received Consignments</label>
                 <input
                   type="checkbox"
                   checked={permissions.receivedOrders}
@@ -815,7 +815,7 @@ const UserManagement = () => {
                 />
               </div>
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">Manage Orders</label>
+                <label className="text-sm font-medium">Assign Coloaders</label>
                 <input
                   type="checkbox"
                   checked={permissions.manageOrders}

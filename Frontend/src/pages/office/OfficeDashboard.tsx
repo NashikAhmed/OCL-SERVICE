@@ -35,12 +35,12 @@ import CorporateRegistration from '@/components/admin/CorporateRegistration';
 import CorporateManagement from '@/components/admin/CorporateManagement';
 import CorporatePricing from '@/components/admin/CorporatePricing';
 import CorporateApproval from '@/components/admin/CorporateApproval';
-import ConsignmentManagement from '@/components/admin/ConsignmentManagement';
+import AssignConsignment from '@/components/admin/AssignConsignment';
 import CourierRequests from '@/components/admin/CourierRequests';
 import InvoiceManagement from '@/components/admin/InvoiceManagement';
 import BaggingManagement from '@/components/admin/BaggingManagement';
-import ReceivedOrders from '@/components/admin/ReceivedOrders';
-import ManageOrders from '@/components/admin/ManageOrders';
+import ReceivedConsignment from '@/components/admin/ReceivedConsignment';
+import AssignColoader from '@/components/admin/AssignColoader';
 
 interface OfficeUser {
   id: string;
@@ -618,7 +618,7 @@ const OfficeDashboard = () => {
               </button>
             )}
 
-            {/* Consignment Management - only shown when user has access */}
+            {/* Assign Consignment - only shown when user has access */}
             {(user?.permissions?.consignmentManagement || user?.adminInfo?.permissions?.consignmentManagement) && (
               <button
                 onClick={() => setActiveTab('consignmentManagement')}
@@ -627,10 +627,10 @@ const OfficeDashboard = () => {
                     ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
                     : 'text-gray-700 hover:bg-gray-50'
                 }`}
-                title={isSidebarCollapsed ? "Consignment Management" : ""}
+                title={isSidebarCollapsed ? "Assign Consignment" : ""}
               >
                 <Package className="h-5 w-5" />
-                {!isSidebarCollapsed && <span className="font-medium text-sm">Consignment Management</span>}
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Assign Consignment</span>}
               </button>
             )}
 
@@ -682,7 +682,7 @@ const OfficeDashboard = () => {
               </button>
             )}
 
-            {/* Received Orders - only shown when user has access */}
+            {/* Received Consignments - only shown when user has access */}
             {(user?.permissions?.receivedOrders || user?.adminInfo?.permissions?.receivedOrders) && (
               <button
                 onClick={() => setActiveTab('receivedOrders')}
@@ -691,14 +691,14 @@ const OfficeDashboard = () => {
                     ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
                     : 'text-gray-700 hover:bg-gray-50'
                 }`}
-                title={isSidebarCollapsed ? "Received Orders" : ""}
+                title={isSidebarCollapsed ? "Received Consignments" : ""}
               >
                 <Package className="h-5 w-5" />
-                {!isSidebarCollapsed && <span className="font-medium text-sm">Received Orders</span>}
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Received Consignments</span>}
               </button>
             )}
 
-            {/* Manage Orders - only shown when user has access */}
+            {/* Assign Coloaders - only shown when user has access */}
             {(user?.permissions?.manageOrders || user?.adminInfo?.permissions?.manageOrders) && (
               <button
                 onClick={() => setActiveTab('manageOrders')}
@@ -707,10 +707,10 @@ const OfficeDashboard = () => {
                     ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
                     : 'text-gray-700 hover:bg-gray-50'
                 }`}
-                title={isSidebarCollapsed ? "Manage Orders" : ""}
+                title={isSidebarCollapsed ? "Assign Coloaders" : ""}
               >
                 <Package className="h-5 w-5" />
-                {!isSidebarCollapsed && <span className="font-medium text-sm">Manage Orders</span>}
+                {!isSidebarCollapsed && <span className="font-medium text-sm">Assign Coloaders</span>}
               </button>
             )}
 
@@ -1073,16 +1073,16 @@ const OfficeDashboard = () => {
             </div>
           )}
 
-          {/* Consignment Management */}
+          {/* Assign Consignment */}
           {activeTab === 'consignmentManagement' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-800">Consignment Management</h1>
+                  <h1 className="text-2xl font-bold text-gray-800">Assign Consignment</h1>
                   <p className="text-gray-600">View and manage consignments</p>
                 </div>
               </div>
-              <ConsignmentManagement />
+              <AssignConsignment />
             </div>
           )}
 
@@ -1125,29 +1125,29 @@ const OfficeDashboard = () => {
             </div>
           )}
 
-          {/* Received Orders */}
+          {/* Received Consignments */}
           {activeTab === 'receivedOrders' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-800">Received Orders</h1>
-                  <p className="text-gray-600">Manage received orders and barcode scanning</p>
+                  <h1 className="text-2xl font-bold text-gray-800">Received Consignments</h1>
+                  <p className="text-gray-600">Manage received consignments and barcode scanning</p>
                 </div>
               </div>
-              <ReceivedOrders />
+              <ReceivedConsignment />
             </div>
           )}
 
-          {/* Manage Orders */}
+          {/* Assign Coloaders */}
           {activeTab === 'manageOrders' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h1 className="text-2xl font-bold text-gray-800">Manage Orders</h1>
+                  <h1 className="text-2xl font-bold text-gray-800">Assign Coloaders</h1>
                   <p className="text-gray-600">Manage and edit order details</p>
                 </div>
               </div>
-              <ManageOrders />
+              <AssignColoader />
             </div>
           )}
 

@@ -36,13 +36,13 @@ import CorporateApproval from '@/components/admin/CorporateApproval';
 import TestComponent from '@/components/admin/TestComponent';
 import CorporateRegistration from '@/components/admin/CorporateRegistration';
 import CorporateManagement from '@/components/admin/CorporateManagement';
-import ConsignmentManagement from '@/components/admin/ConsignmentManagement';
+import AssignConsignment from '@/components/admin/AssignConsignment';
 import CourierRequests from '@/components/admin/CourierRequests';
 import InvoiceManagement from '@/components/admin/InvoiceManagement';
 import EmployeeRegistration from '@/components/admin/EmployeeRegistration';
 import EmployeeManagement from '@/components/admin/EmployeeManagement';
-import ManageOrders from '@/components/admin/ManageOrders';
-import ReceivedOrders from '@/components/admin/ReceivedOrders';
+import AssignColoader from '@/components/admin/AssignColoader';
+import ReceivedConsignment from '@/components/admin/ReceivedConsignment';
 import BaggingManagement from '@/components/admin/BaggingManagement';
 
 interface AdminInfo {
@@ -411,10 +411,10 @@ const AdminDashboard = () => {
                   ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 text-white shadow-md'
                   : 'text-gray-700 hover:bg-gray-50'
               }`}
-              title={isSidebarCollapsed ? "Consignment Management" : ""}
+              title={isSidebarCollapsed ? "Assign Consignment" : ""}
             >
               <Package className="h-5 w-5" />
-              {!isSidebarCollapsed && <span className="font-medium text-sm">Consignment Management</span>}
+              {!isSidebarCollapsed && <span className="font-medium text-sm">Assign Consignment</span>}
             </button>
 
             <button
@@ -450,10 +450,10 @@ const AdminDashboard = () => {
                   ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
                   : 'text-gray-700 hover:bg-gray-50'
               }`}
-              title={isSidebarCollapsed ? "Manage Orders" : ""}
+              title={isSidebarCollapsed ? "Assign Coloaders" : ""}
             >
               <Package className="h-5 w-5" />
-              {!isSidebarCollapsed && <span className="font-medium text-sm">Manage Orders</span>}
+              {!isSidebarCollapsed && <span className="font-medium text-sm">Assign Coloaders</span>}
             </button>
 
             <button
@@ -463,10 +463,10 @@ const AdminDashboard = () => {
                   ? 'bg-gradient-to-r from-blue-500 to-blue-600 text-white shadow-md'
                   : 'text-gray-700 hover:bg-gray-50'
               }`}
-              title={isSidebarCollapsed ? "Received Orders" : ""}
+              title={isSidebarCollapsed ? "Received Consignments" : ""}
             >
               <Package className="h-5 w-5" />
-              {!isSidebarCollapsed && <span className="font-medium text-sm">Received Orders</span>}
+              {!isSidebarCollapsed && <span className="font-medium text-sm">Received Consignments</span>}
             </button>
 
           <button
@@ -678,11 +678,11 @@ const AdminDashboard = () => {
           {activeTab === 'corporateApproval' && <CorporateApproval />}
           {activeTab === 'corporateRegistration' && <CorporateRegistration />}
           {activeTab === 'corporateManagement' && <CorporateManagement />}
-          {activeTab === 'consignment' && <ConsignmentManagement />}
+          {activeTab === 'consignment' && <AssignConsignment />}
           {activeTab === 'courierRequests' && <CourierRequests />}
           {activeTab === 'invoiceManagement' && <InvoiceManagement />}
-          {activeTab === 'manageOrders' && <ManageOrders />}
-          {activeTab === 'receivedOrders' && <ReceivedOrders />}
+          {activeTab === 'manageOrders' && <AssignColoader />}
+          {activeTab === 'receivedOrders' && <ReceivedConsignment />}
           {activeTab === 'baggingManagement' && <BaggingManagement />}
           {activeTab === 'admins' && adminInfo?.role === 'super_admin' && (
             <AdminManagement />

@@ -83,7 +83,7 @@ interface AddressFormData {
   };
 }
 
-const ReceivedOrders = () => {
+const ReceivedConsignment = () => {
   const [activeTab, setActiveTab] = useState<'newReceived' | 'receivedList'>('newReceived');
   const [barcodeInput, setBarcodeInput] = useState('');
   const [scannedOrders, setScannedOrders] = useState<AddressFormData[]>([]);
@@ -94,7 +94,7 @@ const ReceivedOrders = () => {
   const [showAlreadyScannedPopup, setShowAlreadyScannedPopup] = useState(false);
   const { toast } = useToast();
 
-  // Fetch received orders
+  // Fetch received consignments
   const fetchReceivedOrders = async () => {
     try {
       setLoading(true);
@@ -110,13 +110,13 @@ const ReceivedOrders = () => {
         const result = await response.json();
         setReceivedOrders(result.data || []);
       } else {
-        throw new Error('Failed to fetch received orders');
+        throw new Error('Failed to fetch received consignments');
       }
     } catch (error) {
-      console.error('Error fetching received orders:', error);
+      console.error('Error fetching received consignments:', error);
       toast({
         title: "Error",
-        description: "Failed to load received orders",
+        description: "Failed to load received consignments",
         variant: "destructive"
       });
     } finally {
@@ -339,10 +339,10 @@ const ReceivedOrders = () => {
             </div>
             <div>
               <CardTitle className="text-lg font-bold" style={{ fontFamily: 'Calibr', fontSize: '32px' }}>
-                Received Orders
+                Received Consignments
               </CardTitle>
               <p className="text-sm text-gray-500 mt-1" style={{ fontFamily: 'Calibri' }}>
-                Manage received orders and barcode scanning
+                Manage received consignments and barcode scanning
               </p>
             </div>
           </div>
@@ -502,7 +502,7 @@ const ReceivedOrders = () => {
           {activeTab === 'receivedList' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">Received Orders ({receivedOrders.length})</h3>
+                <h3 className="text-lg font-semibold">Received Consignments ({receivedOrders.length})</h3>
                 <Button
                   onClick={fetchReceivedOrders}
                   variant="outline"
@@ -516,13 +516,13 @@ const ReceivedOrders = () => {
               {loading ? (
                 <div className="text-center py-8">
                   <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
-                  <p className="text-gray-500">Loading received orders...</p>
+                  <p className="text-gray-500">Loading received consignments...</p>
                 </div>
               ) : receivedOrders.length === 0 ? (
                 <div className="text-center py-8">
                   <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-gray-800 mb-2">No Received Orders</h3>
-                  <p className="text-gray-600">No orders have been marked as received yet.</p>
+                  <h3 className="text-lg font-semibold text-gray-800 mb-2">No Received Consignments</h3>
+                  <p className="text-gray-600">No consignments have been marked as received yet.</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -580,4 +580,4 @@ const ReceivedOrders = () => {
   );
 };
 
-export default ReceivedOrders;
+export default ReceivedConsignment;
