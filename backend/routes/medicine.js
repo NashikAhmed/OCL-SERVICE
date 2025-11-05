@@ -936,7 +936,7 @@ router.get('/manifests', authenticateMedicine, async (req, res) => {
 // GET /api/medicine/manifests/all - Get all manifests with year filtering (for viewing)
 router.get('/manifests/all', authenticateMedicine, async (req, res) => {
   try {
-    const { year } = req.query;
+    const { year, month } = req.query;
     
     // Default to current financial year if not provided
     let financialYear = year ? parseInt(year) : null;
@@ -953,8 +953,17 @@ router.get('/manifests/all', authenticateMedicine, async (req, res) => {
     }
     
     // Financial year runs from April 1 to March 31
-    const startDate = new Date(financialYear, 3, 1); // April 1 (month 3 = April)
-    const endDate = new Date(financialYear + 1, 2, 31, 23, 59, 59, 999); // March 31
+    let startDate, endDate;
+    const m = month ? parseInt(month) : null;
+    if (m && !isNaN(m) && m >= 1 && m <= 12) {
+      // Specific month within the selected financial year
+      const monthYear = m >= 4 ? financialYear : financialYear + 1;
+      startDate = new Date(monthYear, m - 1, 1);
+      endDate = new Date(monthYear, m, 0, 23, 59, 59, 999); // last day of the month
+    } else {
+      startDate = new Date(financialYear, 3, 1); // April 1 (month 3 = April)
+      endDate = new Date(financialYear + 1, 2, 31, 23, 59, 59, 999); // March 31
+    }
     
     const manifests = await MedicineManifest.find({
       medicineUserId: req.medicine._id,

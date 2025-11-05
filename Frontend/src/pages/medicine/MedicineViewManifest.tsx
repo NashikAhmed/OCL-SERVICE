@@ -77,7 +77,22 @@ const MedicineViewManifest: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedYear, setSelectedYear] = useState<number | null>(null);
   const [availableYears, setAvailableYears] = useState<number[]>([]);
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null);
   const navigate = useNavigate();
+  const financialYearMonths = [
+    { value: 4, label: 'April' },
+    { value: 5, label: 'May' },
+    { value: 6, label: 'June' },
+    { value: 7, label: 'July' },
+    { value: 8, label: 'August' },
+    { value: 9, label: 'September' },
+    { value: 10, label: 'October' },
+    { value: 11, label: 'November' },
+    { value: 12, label: 'December' },
+    { value: 1, label: 'January' },
+    { value: 2, label: 'February' },
+    { value: 3, label: 'March' },
+  ];
 
   useEffect(() => {
     const token = localStorage.getItem('medicineToken');
@@ -109,13 +124,13 @@ const MedicineViewManifest: React.FC = () => {
   // Generate available years (last 5 years + current year)
   useEffect(() => {
     const currentYear = getCurrentFinancialYear();
-    const years = [];
+    const years: number[] = [];
     for (let i = 0; i < 6; i++) {
       years.push(currentYear - i);
     }
     setAvailableYears(years);
     
-    // Check if there's a saved year in localStorage, otherwise use current financial year
+    // Year: restore from localStorage or use current financial year
     const savedYear = localStorage.getItem('medicineManifestYear');
     if (savedYear) {
       const year = parseInt(savedYear);
@@ -129,6 +144,19 @@ const MedicineViewManifest: React.FC = () => {
       setSelectedYear(currentYear);
       localStorage.setItem('medicineManifestYear', currentYear.toString());
     }
+
+    // Month: restore from localStorage if present
+    const savedMonth = localStorage.getItem('medicineManifestMonth');
+    if (savedMonth) {
+      const m = parseInt(savedMonth);
+      if (!isNaN(m) && m >= 1 && m <= 12) {
+        setSelectedMonth(m);
+      } else {
+        setSelectedMonth(null);
+      }
+    } else {
+      setSelectedMonth(null);
+    }
   }, []);
 
   // Save selected year to localStorage when it changes
@@ -137,6 +165,15 @@ const MedicineViewManifest: React.FC = () => {
       localStorage.setItem('medicineManifestYear', selectedYear.toString());
     }
   }, [selectedYear]);
+
+  // Save selected month to localStorage when it changes
+  useEffect(() => {
+    if (selectedMonth !== null) {
+      localStorage.setItem('medicineManifestMonth', selectedMonth.toString());
+    } else {
+      localStorage.removeItem('medicineManifestMonth');
+    }
+  }, [selectedMonth]);
 
   // Fetch manifests when year changes
   useEffect(() => {
@@ -152,8 +189,9 @@ const MedicineViewManifest: React.FC = () => {
       setIsLoading(true);
       setError(null);
       const token = localStorage.getItem('medicineToken');
+      const monthParam = selectedMonth ? `&month=${selectedMonth}` : '';
       const response = await axios.get(
-        `${API_BASE}/api/medicine/manifests/all?year=${selectedYear}`,
+        `${API_BASE}/api/medicine/manifests/all?year=${selectedYear}${monthParam}`,
         {
           headers: {
             'Authorization': `Bearer ${token}`
@@ -255,14 +293,14 @@ const MedicineViewManifest: React.FC = () => {
         onLogout={handleLogout} 
       />
       <main className={`${isSidebarCollapsed ? 'ml-16 w-[calc(100vw-4rem)]' : 'ml-64 w-[calc(100vw-16rem)]'} h-screen overflow-y-auto p-6 transition-all duration-300 ease-in-out`}>
-        <div className="space-y-6">
+        <div className="space-y-6 px-4">
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <h1 className="text-2xl font-semibold text-gray-900">View Manifests</h1>
               <p className="text-sm text-gray-500 mt-1">View all manifests with status and coloader information</p>
             </div>
-            {/* Year Selector */}
+            {/* Year & Month Selectors */}
             <div className="flex items-center gap-3">
               <label htmlFor="yearSelect" className="text-sm font-medium text-gray-700">
                 Financial Year:
@@ -277,6 +315,24 @@ const MedicineViewManifest: React.FC = () => {
                   <option key={year} value={year}>
                     {year} - {year + 1} (Apr - Mar)
                   </option>
+                ))}
+              </select>
+
+              <label htmlFor="monthSelect" className="text-sm font-medium text-gray-700">
+                Month:
+              </label>
+              <select
+                id="monthSelect"
+                value={selectedMonth ?? ''}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setSelectedMonth(val ? parseInt(val) : null);
+                }}
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+              >
+                <option value="">All months</option>
+                {financialYearMonths.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </select>
             </div>
@@ -380,11 +436,11 @@ const MedicineViewManifest: React.FC = () => {
                   </CardContent>
                 </Card>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-6">
                   {manifests.map((manifest) => {
                     const totals = calculateManifestTotals(manifest);
                     return (
-                      <Card key={manifest._id} className="border-0 shadow-sm rounded-xl">
+                      <Card key={manifest._id} className="border-0 shadow-lg rounded-xl overflow-hidden transition-all duration-300 hover:shadow-xl">
                         <CardHeader className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50">
                           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                             <div className="flex items-center gap-3">
@@ -442,11 +498,11 @@ const MedicineViewManifest: React.FC = () => {
                             <table className="min-w-full border border-gray-200 rounded-lg overflow-hidden">
                               <thead className="bg-gray-50">
                                 <tr className="text-left text-xs text-gray-600">
-                                  <th className="px-3 py-2 border-b">Sr. No</th>
-                                  <th className="px-3 py-2 border-b">AWB / Docket No</th>
-                                  <th className="px-3 py-2 border-b">Destination</th>
-                                  <th className="px-3 py-2 border-b">Units</th>
-                                  <th className="px-3 py-2 border-b">Weight (Kg)</th>
+                                  <th className="px-4 py-3 border-b">Sr. No</th>
+                                  <th className="px-4 py-3 border-b">AWB / Docket No</th>
+                                  <th className="px-4 py-3 border-b">Destination</th>
+                                  <th className="px-4 py-3 border-b text-center">Units</th>
+                                  <th className="px-4 py-3 border-b text-right">Weight (Kg)</th>
                                 </tr>
                               </thead>
                               <tbody className="text-sm">

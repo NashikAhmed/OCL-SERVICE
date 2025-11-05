@@ -1,4 +1,5 @@
 import React from "react";
+import { useLocation } from "react-router-dom";
 import StickyTabs from "./StickyTabs";
 
 interface GlobalStickyTabsProps {
@@ -6,10 +7,12 @@ interface GlobalStickyTabsProps {
 }
 
 const GlobalStickyTabs: React.FC<GlobalStickyTabsProps> = ({ children }) => {
+  const location = useLocation();
+  const hideTabs = location.pathname.startsWith("/medicine");
   return (
     <>
       {children}
-      <StickyTabs />
+      {!hideTabs && <StickyTabs />}
     </>
   );
 };

@@ -369,7 +369,7 @@ const MedicineManifest: React.FC = () => {
         onLogout={handleLogout} 
       />
       <main className={`${isSidebarCollapsed ? 'ml-16 w-[calc(100vw-4rem)]' : 'ml-64 w-[calc(100vw-16rem)]'} h-screen overflow-y-auto p-6 transition-all duration-300 ease-in-out`}>
-        <div className="space-y-6">
+        <div className="space-y-6 px-4">
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
@@ -409,11 +409,11 @@ const MedicineManifest: React.FC = () => {
                   </CardContent>
                 </Card>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-6">
                   {manifests.map((manifest) => {
                     const totals = calculateManifestTotals(manifest);
                     return (
-                      <Card key={manifest._id} className="border-0 shadow-sm rounded-xl">
+                      <Card key={manifest._id} className="border-0 shadow-lg rounded-xl overflow-hidden transition-all duration-300 hover:shadow-xl">
                         <CardHeader className="px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-blue-50 to-indigo-50">
                           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                             <div className="flex items-center gap-3">
@@ -442,11 +442,11 @@ const MedicineManifest: React.FC = () => {
                             <table className="min-w-full border border-gray-200 rounded-lg overflow-hidden">
                               <thead className="bg-gray-50">
                                 <tr className="text-left text-xs text-gray-600">
-                                  <th className="px-3 py-2 border-b">Sr. No</th>
-                                  <th className="px-3 py-2 border-b">AWB / Docket No</th>
-                                  <th className="px-3 py-2 border-b">Destination</th>
-                                  <th className="px-3 py-2 border-b">Units</th>
-                                  <th className="px-3 py-2 border-b">Weight (Kg)</th>
+                                  <th className="px-4 py-3 border-b">Sr. No</th>
+                                  <th className="px-4 py-3 border-b">AWB / Docket No</th>
+                                  <th className="px-4 py-3 border-b">Destination</th>
+                                  <th className="px-4 py-3 border-b text-center">Units</th>
+                                  <th className="px-4 py-3 border-b text-right">Weight (Kg)</th>
                                 </tr>
                               </thead>
                               <tbody className="text-sm">
