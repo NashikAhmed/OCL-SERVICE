@@ -6,16 +6,16 @@ import fs from 'fs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Ensure corporate logos directory exists
-const corporateLogosDir = path.join(__dirname, '../uploads/corporate-logos');
-if (!fs.existsSync(corporateLogosDir)) {
-  fs.mkdirSync(corporateLogosDir, { recursive: true });
+// Ensure temp directory exists
+const tempDir = path.join(__dirname, '../temp');
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir, { recursive: true });
 }
 
-// Configure storage for corporate logos
+// Configure storage for temporary files (will be uploaded to S3)
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, corporateLogosDir);
+    cb(null, tempDir);
   },
   filename: function (req, file, cb) {
     // Get corporate ID from request body or params
@@ -28,14 +28,9 @@ const storage = multer.diskStorage({
     // Get file extension
     const fileExtension = path.extname(file.originalname);
     
-    // Create filename using corporate ID
-    const fileName = `${corporateId}${fileExtension}`;
-    
-    // Check if file already exists and delete it
-    const filePath = path.join(corporateLogosDir, fileName);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+    // Create filename using corporate ID and timestamp
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const fileName = `${corporateId}-${uniqueSuffix}${fileExtension}`;
     
     cb(null, fileName);
   }

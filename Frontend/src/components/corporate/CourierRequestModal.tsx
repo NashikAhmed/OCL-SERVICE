@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { 
   Truck, 
@@ -11,7 +10,9 @@ import {
   Phone, 
   Package,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Weight,
+  User
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -31,10 +32,11 @@ const CourierRequestModal: React.FC<CourierRequestModalProps> = ({
   const [formData, setFormData] = useState({
     pickupAddress: '',
     contactPerson: '',
-    contactPhone: corporateContact,
+    contactPhone: '',
     urgency: 'normal',
     specialInstructions: '',
-    packageCount: 1
+    packageCount: '',
+    weight: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -44,6 +46,16 @@ const CourierRequestModal: React.FC<CourierRequestModalProps> = ({
     e.preventDefault();
     setIsSubmitting(true);
 
+    // Prepare payload and log before sending
+    const payload: any = {
+      ...formData,
+      packageCount: parseInt(formData.packageCount) || 1
+    };
+    if (!formData.pickupAddress.trim()) {
+      delete payload.pickupAddress;
+    }
+    console.log('Form data being sent:', payload);
+
     try {
       const token = localStorage.getItem('corporateToken');
       const response = await fetch('/api/corporate/request-courier', {
@@ -52,7 +64,7 @@ const CourierRequestModal: React.FC<CourierRequestModalProps> = ({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify(payload)
       });
 
       if (response.ok) {
@@ -70,7 +82,7 @@ const CourierRequestModal: React.FC<CourierRequestModalProps> = ({
           corporate: corporateName,
           timestamp: new Date().toISOString(),
           requestId: result.requestId,
-          request: formData
+          request: payload
         });
       } else {
         const errorData = await response.json();
@@ -95,10 +107,11 @@ const CourierRequestModal: React.FC<CourierRequestModalProps> = ({
       setFormData({
         pickupAddress: '',
         contactPerson: '',
-        contactPhone: corporateContact,
+        contactPhone: '',
         urgency: 'normal',
         specialInstructions: '',
-        packageCount: 1
+        packageCount: '',
+        weight: ''
       });
       onClose();
     }
@@ -155,120 +168,217 @@ const CourierRequestModal: React.FC<CourierRequestModalProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-md max-h-[80vh] overflow-y-auto rounded-xl shadow-xl">
         <DialogHeader>
           <DialogTitle className="flex items-center text-blue-600">
             <Truck className="h-5 w-5 mr-2" />
-            Request a Courier
+            Request For Pickup
           </DialogTitle>
         </DialogHeader>
         
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="pickupAddress">Pickup Address *</Label>
-            <div className="relative">
-              <MapPin className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Textarea
-                id="pickupAddress"
-                placeholder="Enter complete pickup address with landmark"
-                value={formData.pickupAddress}
-                onChange={(e) => setFormData(prev => ({ ...prev, pickupAddress: e.target.value }))}
-                className="pl-10"
-                required
-                rows={3}
-              />
-            </div>
+        <form onSubmit={handleSubmit} className="space-y-4 py-2">
+          {/* Floating Label Input Component */}
+          <div className="relative">
+            <Input
+              id="pickupAddress"
+              value={formData.pickupAddress}
+              onChange={(e) => setFormData(prev => ({ ...prev, pickupAddress: e.target.value }))}
+              className="h-12 pt-5 px-3 text-sm shadow-sm border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+            <Label 
+              htmlFor="pickupAddress"
+              className={`
+                absolute left-3 transition-all duration-200 ease-in-out pointer-events-none
+                ${formData.pickupAddress 
+                  ? '-top-2 text-xs text-blue-600 font-medium bg-white px-1' 
+                  : 'top-4 text-sm text-gray-500'
+                }
+              `}
+            >
+              <MapPin className="h-3 w-3 text-blue-500 inline mr-1" />
+              Pickup Address (optional)
+            </Label>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="contactPerson">Contact Person *</Label>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="relative">
               <Input
                 id="contactPerson"
-                placeholder="Name of contact person"
                 value={formData.contactPerson}
                 onChange={(e) => setFormData(prev => ({ ...prev, contactPerson: e.target.value }))}
                 required
+                className="h-12 pt-5 px-3 text-sm shadow-sm border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
+              <Label 
+                htmlFor="contactPerson"
+                className={`
+                  absolute left-3 transition-all duration-200 ease-in-out pointer-events-none
+                  ${formData.contactPerson 
+                    ? '-top-2 text-xs text-blue-600 font-medium bg-white px-1' 
+                    : 'top-4 text-sm text-gray-500'
+                  }
+                `}
+              >
+                <User className="h-3 w-3 text-blue-500 inline mr-1" />
+                Contact Person *
+              </Label>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="contactPhone">Contact Phone *</Label>
-              <div className="relative">
-                <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  id="contactPhone"
-                  placeholder="10-digit mobile number"
-                  value={formData.contactPhone}
-                  onChange={(e) => setFormData(prev => ({ ...prev, contactPhone: e.target.value }))}
-                  className="pl-10"
-                  required
-                />
-              </div>
+            
+            <div className="relative">
+              <Input
+                id="contactPhone"
+                value={formData.contactPhone}
+                onChange={(e) => setFormData(prev => ({ ...prev, contactPhone: e.target.value }))}
+                required
+                className="h-12 pt-5 px-3 text-sm shadow-sm border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <Label 
+                htmlFor="contactPhone"
+                className={`
+                  absolute left-3 transition-all duration-200 ease-in-out pointer-events-none
+                  ${formData.contactPhone 
+                    ? '-top-2 text-xs text-blue-600 font-medium bg-white px-1' 
+                    : 'top-4 text-sm text-gray-500'
+                  }
+                `}
+              >
+                <Phone className="h-3 w-3 text-blue-500 inline mr-1" />
+                Contact Phone *
+              </Label>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="urgency">Urgency</Label>
-              <select
-                id="urgency"
-                value={formData.urgency}
-                onChange={(e) => setFormData(prev => ({ ...prev, urgency: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          <div className="grid grid-cols-2 gap-3">
+            <div className="relative">
+              <Input
+                id="packageCount"
+                type="number"
+                min="1"
+                max="10"
+                value={formData.packageCount}
+                onChange={(e) => setFormData(prev => ({ ...prev, packageCount: e.target.value }))}
+                className="h-12 pt-5 px-3 text-sm shadow-sm border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <Label 
+                htmlFor="packageCount"
+                className={`
+                  absolute left-3 transition-all duration-200 ease-in-out pointer-events-none
+                  ${formData.packageCount 
+                    ? '-top-2 text-xs text-blue-600 font-medium bg-white px-1' 
+                    : 'top-4 text-sm text-gray-500'  
+                  }
+                `}
               >
-                <option value="normal">Normal</option>
-                <option value="urgent">Urgent</option>
-                <option value="immediate">Immediate</option>
-              </select>
+                <Package className="h-3 w-3 text-blue-500 inline mr-1" />
+                Number of Packages
+              </Label>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="packageCount">Number of Packages</Label>
-              <div className="relative">
-                <Package className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <Input
-                  id="packageCount"
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={formData.packageCount}
-                  onChange={(e) => setFormData(prev => ({ ...prev, packageCount: parseInt(e.target.value) || 1 }))}
-                  className="pl-10"
-                />
-              </div>
+            
+            <div className="relative">
+              <Input
+                id="weight"
+                type="number"
+                min="0.1"
+                step="0.1"
+                value={formData.weight}
+                onChange={(e) => setFormData(prev => ({ ...prev, weight: e.target.value }))}
+                required
+                className="h-12 pt-5 px-3 text-sm shadow-sm border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <Label 
+                htmlFor="weight"
+                className={`
+                  absolute left-3 transition-all duration-200 ease-in-out pointer-events-none
+                  ${formData.weight 
+                    ? '-top-2 text-xs text-blue-600 font-medium bg-white px-1' 
+                    : 'top-4 text-sm text-gray-500'
+                  }
+                `}
+              >
+                <Weight className="h-3 w-3 text-blue-500 inline mr-1" />
+                Weight (kg) *
+              </Label>
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="specialInstructions">Special Instructions</Label>
-            <Textarea
-              id="specialInstructions"
-              placeholder="Any special instructions for the courier (optional)"
-              value={formData.specialInstructions}
-              onChange={(e) => setFormData(prev => ({ ...prev, specialInstructions: e.target.value }))}
-              rows={2}
-            />
-          </div>
-
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <div className="flex items-center gap-2 text-blue-800">
-              <Clock className="h-4 w-4" />
-              <span className="text-sm font-medium">Expected Response Time: 10-15 minutes</span>
+            <Label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+              <Clock className="h-4 w-4 text-blue-500" />
+              Urgency
+            </Label>
+            <div className="grid grid-cols-3 gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={formData.urgency === 'normal' ? "default" : "outline"}
+                className={`h-9 text-sm ${formData.urgency === 'normal' ? "bg-blue-600 hover:bg-blue-700" : ""}`}
+                onClick={() => setFormData(prev => ({ ...prev, urgency: 'normal' }))}
+              >
+                Normal
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={formData.urgency === 'urgent' ? "default" : "outline"}
+                className={`h-9 text-sm ${formData.urgency === 'urgent' ? "bg-orange-600 hover:bg-orange-700" : ""}`}
+                onClick={() => setFormData(prev => ({ ...prev, urgency: 'urgent' }))}
+              >
+                Urgent
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={formData.urgency === 'immediate' ? "default" : "outline"}
+                className={`h-9 text-sm ${formData.urgency === 'immediate' ? "bg-red-600 hover:bg-red-700" : ""}`}
+                onClick={() => setFormData(prev => ({ ...prev, urgency: 'immediate' }))}
+              >
+                Immediate
+              </Button>
             </div>
           </div>
 
-          <DialogFooter className="gap-2">
+          <div className="relative">
+            <Input
+              id="specialInstructions"
+              value={formData.specialInstructions}
+              onChange={(e) => setFormData(prev => ({ ...prev, specialInstructions: e.target.value }))}
+              className="h-12 pt-5 px-3 text-sm shadow-sm border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+            <Label 
+              htmlFor="specialInstructions"
+              className={`
+                absolute left-3 transition-all duration-200 ease-in-out pointer-events-none
+                ${formData.specialInstructions 
+                  ? '-top-2 text-xs text-blue-600 font-medium bg-white px-1' 
+                  : 'top-4 text-sm text-gray-500'
+                  }
+                `}
+            >
+              Special Instructions
+            </Label>
+          </div>
+
+          <div className="bg-blue-50 rounded-md p-3">
+            <div className="flex items-center gap-2 text-blue-800">
+              <Clock className="h-4 w-4" />
+              <span className="text-sm font-medium">Response time: 10-15 minutes</span>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-3 pt-2">
             <Button
               type="button"
               variant="outline"
               onClick={handleClose}
               disabled={isSubmitting}
+              className="h-9 text-sm"
             >
               Cancel
             </Button>
             <Button
               type="submit"
               disabled={isSubmitting}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
+              className="h-9 bg-blue-600 hover:bg-blue-700 text-white text-sm"
             >
               {isSubmitting ? (
                 <>

@@ -94,11 +94,10 @@ export default function InvoicePopup({ isOpen, onClose, onConfirm, bookingData }
   useEffect(() => {
     if (isOpen) {
       setCreatedAt(new Date());
-      // Use numeric consignment number from booking data
-      const consignmentFromBooking = bookingData?.uploadData?.invoiceNumber;
+      // Use actual consignment number from booking data (not invoice number)
+      const consignmentFromBooking = bookingData?.consignmentNumber;
       if (consignmentFromBooking) {
-        const numeric = String(consignmentFromBooking).replace(/[^0-9]/g, '');
-        setConsignmentNo(numeric);
+        setConsignmentNo(consignmentFromBooking.toString());
       } else {
         // Fallback: 8-digit placeholder (for preview only)
         setConsignmentNo(() => `${Date.now().toString().slice(-8)}`);

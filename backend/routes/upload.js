@@ -1,5 +1,6 @@
 import express from 'express';
 import { uploadPackageImages, uploadInvoiceImages, uploadScreenshots, handleUploadError } from '../middleware/upload.js';
+import S3Service from '../services/s3Service.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -10,7 +11,7 @@ const __dirname = path.dirname(__filename);
 const router = express.Router();
 
 // Upload package images
-router.post('/package-images', uploadPackageImages, handleUploadError, (req, res) => {
+router.post('/package-images', uploadPackageImages, handleUploadError, async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({
@@ -19,19 +20,20 @@ router.post('/package-images', uploadPackageImages, handleUploadError, (req, res
       });
     }
 
-    const uploadedFiles = req.files.map(file => ({
-      filename: file.filename,
-      originalName: file.originalname,
-      path: file.path,
-      size: file.size,
-      mimetype: file.mimetype,
-      url: `/api/upload/serve/${file.filename}`
-    }));
+    // Upload files to S3
+    const uploadResult = await S3Service.uploadMultipleFiles(req.files, 'uploads/screenshots/package-images');
+    
+    if (!uploadResult.success) {
+      return res.status(500).json({
+        error: 'Upload failed',
+        message: 'Failed to upload package images to S3'
+      });
+    }
 
     res.json({
       success: true,
       message: `${req.files.length} package image(s) uploaded successfully`,
-      files: uploadedFiles
+      files: uploadResult.files
     });
   } catch (error) {
     console.error('Error uploading package images:', error);
@@ -43,7 +45,7 @@ router.post('/package-images', uploadPackageImages, handleUploadError, (req, res
 });
 
 // Upload invoice images
-router.post('/invoice-images', uploadInvoiceImages, handleUploadError, (req, res) => {
+router.post('/invoice-images', uploadInvoiceImages, handleUploadError, async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({
@@ -52,19 +54,20 @@ router.post('/invoice-images', uploadInvoiceImages, handleUploadError, (req, res
       });
     }
 
-    const uploadedFiles = req.files.map(file => ({
-      filename: file.filename,
-      originalName: file.originalname,
-      path: file.path,
-      size: file.size,
-      mimetype: file.mimetype,
-      url: `/api/upload/serve/${file.filename}`
-    }));
+    // Upload files to S3
+    const uploadResult = await S3Service.uploadMultipleFiles(req.files, 'uploads/screenshots/invoice-images');
+    
+    if (!uploadResult.success) {
+      return res.status(500).json({
+        error: 'Upload failed',
+        message: 'Failed to upload invoice images to S3'
+      });
+    }
 
     res.json({
       success: true,
       message: `${req.files.length} invoice image(s) uploaded successfully`,
-      files: uploadedFiles
+      files: uploadResult.files
     });
   } catch (error) {
     console.error('Error uploading invoice images:', error);
@@ -76,33 +79,27 @@ router.post('/invoice-images', uploadInvoiceImages, handleUploadError, (req, res
 });
 
 // Upload both package and invoice images
-router.post('/screenshots', uploadScreenshots, handleUploadError, (req, res) => {
+router.post('/screenshots', uploadScreenshots, handleUploadError, async (req, res) => {
   try {
     const result = {
       packageImages: [],
       invoiceImages: []
     };
 
+    // Upload package images to S3
     if (req.files.packageImages) {
-      result.packageImages = req.files.packageImages.map(file => ({
-        filename: file.filename,
-        originalName: file.originalname,
-        path: file.path,
-        size: file.size,
-        mimetype: file.mimetype,
-        url: `/api/upload/serve/${file.filename}`
-      }));
+      const packageUploadResult = await S3Service.uploadMultipleFiles(req.files.packageImages, 'uploads/screenshots/package-images');
+      if (packageUploadResult.success) {
+        result.packageImages = packageUploadResult.files;
+      }
     }
 
+    // Upload invoice images to S3
     if (req.files.invoiceImages) {
-      result.invoiceImages = req.files.invoiceImages.map(file => ({
-        filename: file.filename,
-        originalName: file.originalname,
-        path: file.path,
-        size: file.size,
-        mimetype: file.mimetype,
-        url: `/api/upload/serve/${file.filename}`
-      }));
+      const invoiceUploadResult = await S3Service.uploadMultipleFiles(req.files.invoiceImages, 'uploads/screenshots/invoice-images');
+      if (invoiceUploadResult.success) {
+        result.invoiceImages = invoiceUploadResult.files;
+      }
     }
 
     const totalFiles = result.packageImages.length + result.invoiceImages.length;
@@ -128,7 +125,7 @@ router.post('/screenshots', uploadScreenshots, handleUploadError, (req, res) => 
   }
 });
 
-// Serve uploaded images
+// Serve uploaded images (backward compatibility for local files)
 router.get('/serve/:filename', (req, res) => {
   try {
     const filename = req.params.filename;
@@ -179,7 +176,7 @@ router.get('/serve/:filename', (req, res) => {
   }
 });
 
-// Delete uploaded image
+// Delete uploaded image (backward compatibility for local files)
 router.delete('/delete/:filename', (req, res) => {
   try {
     const filename = req.params.filename;
@@ -214,6 +211,48 @@ router.delete('/delete/:filename', (req, res) => {
     res.status(500).json({
       error: 'Delete failed',
       message: 'Failed to delete image'
+    });
+  }
+});
+
+// Delete S3 file by URL
+router.delete('/delete-s3', async (req, res) => {
+  try {
+    const { url } = req.body;
+    
+    if (!url) {
+      return res.status(400).json({
+        error: 'URL required',
+        message: 'File URL is required for deletion'
+      });
+    }
+    
+    if (!S3Service.isS3Url(url)) {
+      return res.status(400).json({
+        error: 'Invalid URL',
+        message: 'Only S3 URLs can be deleted through this endpoint'
+      });
+    }
+    
+    const s3Key = S3Service.extractKeyFromUrl(url);
+    if (!s3Key) {
+      return res.status(400).json({
+        error: 'Invalid S3 URL',
+        message: 'Could not extract S3 key from URL'
+      });
+    }
+    
+    await S3Service.deleteFile(s3Key);
+    
+    res.json({
+      success: true,
+      message: 'File deleted successfully from S3'
+    });
+  } catch (error) {
+    console.error('Error deleting S3 file:', error);
+    res.status(500).json({
+      error: 'Delete failed',
+      message: 'Failed to delete file from S3'
     });
   }
 });

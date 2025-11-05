@@ -1254,6 +1254,21 @@ const CorporateBookingPanel = () => {
           description: `Your shipment has been booked successfully! Consignment Number: ${result.consignmentNumber}`,
         });
 
+        // Dispatch event to notify other components about consignment usage update
+        const corporateId = localStorage.getItem('corporateId');
+        if (corporateId) {
+          const event = new CustomEvent('consignmentUsageUpdated', {
+            detail: {
+              corporateId: corporateId,
+              assignmentType: 'corporate',
+              consignmentNumber: result.consignmentNumber,
+              bookingReference: result.bookingReference || result.consignmentNumber
+            }
+          });
+          window.dispatchEvent(event);
+          console.log('Dispatched consignmentUsageUpdated event for corporate:', corporateId);
+        }
+
         // Set completion state
         setIsBookingComplete(true);
         setBookingReference(result.bookingReference || result.consignmentNumber || `OCL-${Date.now().toString().slice(-8)}`);

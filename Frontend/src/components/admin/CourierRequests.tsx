@@ -18,7 +18,8 @@ import {
   Search,
   Filter,
   Eye,
-  MessageSquare
+  MessageSquare,
+  Weight
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -38,6 +39,7 @@ interface CourierRequest {
     urgency: 'normal' | 'urgent' | 'immediate';
     specialInstructions: string;
     packageCount: number;
+    weight: number;
   };
   status: 'pending' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
   requestedAt: string;
@@ -51,6 +53,15 @@ interface CourierRequest {
   completedAt?: string;
 }
 
+interface CourierBoy {
+  _id: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  area: string;
+  status: string;
+}
+
 const CourierRequests: React.FC = () => {
   const [requests, setRequests] = useState<CourierRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,27 +70,160 @@ const CourierRequests: React.FC = () => {
   const [urgencyFilter, setUrgencyFilter] = useState<string>('all');
   const [selectedRequest, setSelectedRequest] = useState<CourierRequest | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [courierBoys, setCourierBoys] = useState<CourierBoy[]>([]);
+  const [loadingCourierBoys, setLoadingCourierBoys] = useState(false);
+  const [selectedCourierBoyId, setSelectedCourierBoyId] = useState<string>('');
+  const [assigning, setAssigning] = useState(false);
   const { toast } = useToast();
 
-
+  // Fetch courier requests on component mount
   useEffect(() => {
     fetchCourierRequests();
   }, []);
 
-  const fetchCourierRequests = async () => {
+  const fetchCourierBoys = async () => {
     try {
-      setLoading(true);
-      const token = localStorage.getItem('adminToken');
-      const response = await fetch('/api/admin/courier-requests', {
+      setLoadingCourierBoys(true);
+      
+      // Determine which token to use
+      const adminToken = localStorage.getItem('adminToken');
+      const officeToken = localStorage.getItem('officeToken');
+      
+      let token;
+      if (adminToken) {
+        token = adminToken;
+      } else if (officeToken) {
+        token = officeToken;
+      } else {
+        throw new Error('No authentication token found');
+      }
+      
+      const response = await fetch('/api/courier-boy?status=approved&limit=100', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       
       if (response.ok) {
         const data = await response.json();
+        if (data.success) {
+          setCourierBoys(data.courierBoys || []);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching courier boys:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch courier boys",
+        variant: "destructive"
+      });
+    } finally {
+      setLoadingCourierBoys(false);
+    }
+  };
+
+  const handleAssignClick = (request: CourierRequest) => {
+    setSelectedRequest(request);
+    setSelectedCourierBoyId('');
+    setShowAssignModal(true);
+    fetchCourierBoys();
+  };
+
+  const handleAssignCourier = async () => {
+    if (!selectedRequest || !selectedCourierBoyId) {
+      toast({
+        title: "Error",
+        description: "Please select a courier boy",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      setAssigning(true);
+      
+      // Determine which token and endpoint to use
+      const adminToken = localStorage.getItem('adminToken');
+      const officeToken = localStorage.getItem('officeToken');
+      
+      let token, endpoint;
+      if (adminToken) {
+        token = adminToken;
+        endpoint = `/api/admin/courier-requests/${selectedRequest.id}/assign`;
+      } else if (officeToken) {
+        token = officeToken;
+        endpoint = `/api/office/courier-requests/${selectedRequest.id}/assign`;
+      } else {
+        throw new Error('No authentication token found');
+      }
+      
+      const response = await fetch(endpoint, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ courierBoyId: selectedCourierBoyId })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // Refresh requests list
+        await fetchCourierRequests();
+        
+        toast({
+          title: "Success",
+          description: `Courier boy assigned successfully`,
+        });
+        
+        setShowAssignModal(false);
+        setSelectedRequest(null);
+        setSelectedCourierBoyId('');
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to assign courier boy');
+      }
+    } catch (error) {
+      console.error('Error assigning courier boy:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to assign courier boy",
+        variant: "destructive"
+      });
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const fetchCourierRequests = async () => {
+    try {
+      setLoading(true);
+      
+      // Determine which token and endpoint to use
+      const adminToken = localStorage.getItem('adminToken');
+      const officeToken = localStorage.getItem('officeToken');
+      
+      let token, endpoint;
+      if (adminToken) {
+        token = adminToken;
+        endpoint = '/api/admin/courier-requests';
+      } else if (officeToken) {
+        token = officeToken;
+        endpoint = '/api/office/courier-requests';
+      } else {
+        throw new Error('No authentication token found');
+      }
+      
+      const response = await fetch(endpoint, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Courier requests fetched:', data);
         setRequests(data.requests || []);
       } else {
         // Set empty array if API fails
-        console.log('API failed, no data available');
+        console.log('API failed, no data available. Status:', response.status);
         setRequests([]);
       }
     } catch (error) {
@@ -98,8 +242,22 @@ const CourierRequests: React.FC = () => {
 
   const handleStatusUpdate = async (requestId: string, newStatus: string) => {
     try {
-      const token = localStorage.getItem('adminToken');
-      const response = await fetch(`/api/admin/courier-requests/${requestId}/status`, {
+      // Determine which token and endpoint to use
+      const adminToken = localStorage.getItem('adminToken');
+      const officeToken = localStorage.getItem('officeToken');
+      
+      let token, endpoint;
+      if (adminToken) {
+        token = adminToken;
+        endpoint = `/api/admin/courier-requests/${requestId}/status`;
+      } else if (officeToken) {
+        token = officeToken;
+        endpoint = `/api/office/courier-requests/${requestId}/status`;
+      } else {
+        throw new Error('No authentication token found');
+      }
+      
+      const response = await fetch(endpoint, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -367,6 +525,10 @@ const CourierRequests: React.FC = () => {
                             <Package className="h-4 w-4" />
                             <span>{request.requestData.packageCount} package(s)</span>
                           </div>
+                          <div className="flex items-center gap-2">
+                            <Weight className="h-4 w-4" />
+                            <span>{request.requestData.weight} kg</span>
+                          </div>
                           {request.assignedCourier && (
                             <div className="flex items-center gap-2">
                               <Truck className="h-4 w-4" />
@@ -404,7 +566,7 @@ const CourierRequests: React.FC = () => {
                     {request.status === 'pending' && (
                       <Button
                         size="sm"
-                        onClick={() => handleStatusUpdate(request.id, 'assigned')}
+                        onClick={() => handleAssignClick(request)}
                         className="bg-blue-600 hover:bg-blue-700"
                       >
                         Assign Courier
@@ -489,7 +651,7 @@ const CourierRequests: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div>
                     <label className="text-sm font-medium text-gray-700">Urgency</label>
                     <Badge className={getUrgencyColor(selectedRequest.requestData.urgency)}>
@@ -499,6 +661,10 @@ const CourierRequests: React.FC = () => {
                   <div>
                     <label className="text-sm font-medium text-gray-700">Package Count</label>
                     <p className="text-sm text-gray-900">{selectedRequest.requestData.packageCount}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700">Weight</label>
+                    <p className="text-sm text-gray-900">{selectedRequest.requestData.weight} kg</p>
                   </div>
                 </div>
 
@@ -514,6 +680,119 @@ const CourierRequests: React.FC = () => {
                   <p className="text-sm text-gray-900">
                     {new Date(selectedRequest.requestedAt).toLocaleString()}
                   </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Courier Modal */}
+      {showAssignModal && selectedRequest && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">Assign Courier Boy</h3>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setShowAssignModal(false);
+                    setSelectedRequest(null);
+                    setSelectedCourierBoyId('');
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">
+                    Request Details
+                  </label>
+                  <div className="bg-gray-50 p-4 rounded-lg space-y-2">
+                    <p className="text-sm">
+                      <span className="font-medium">Company:</span> {selectedRequest.corporateInfo.companyName}
+                    </p>
+                    <p className="text-sm">
+                      <span className="font-medium">Request ID:</span> {selectedRequest.id}
+                    </p>
+                    <p className="text-sm">
+                      <span className="font-medium">Pickup Address:</span> {selectedRequest.requestData.pickupAddress}
+                    </p>
+                    <p className="text-sm">
+                      <span className="font-medium">Weight:</span> {selectedRequest.requestData.weight} kg
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-gray-700 mb-2 block">
+                    Select Courier Boy
+                  </label>
+                  {loadingCourierBoys ? (
+                    <div className="flex items-center justify-center p-8">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                    </div>
+                  ) : courierBoys.length === 0 ? (
+                    <div className="p-8 text-center text-gray-500">
+                      No approved courier boys available
+                    </div>
+                  ) : (
+                    <div className="border rounded-lg max-h-64 overflow-y-auto">
+                      {courierBoys.map((courier) => (
+                        <div
+                          key={courier._id}
+                          onClick={() => setSelectedCourierBoyId(courier._id)}
+                          className={`p-4 border-b cursor-pointer hover:bg-gray-50 transition ${
+                            selectedCourierBoyId === courier._id ? 'bg-blue-50 border-blue-200' : ''
+                          }`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="font-medium text-gray-900">{courier.fullName}</p>
+                              <p className="text-sm text-gray-600">{courier.phone}</p>
+                              {courier.area && (
+                                <p className="text-xs text-gray-500 mt-1">Area: {courier.area}</p>
+                              )}
+                            </div>
+                            {selectedCourierBoyId === courier._id && (
+                              <CheckCircle className="h-5 w-5 text-blue-600" />
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <Button
+                    onClick={handleAssignCourier}
+                    disabled={!selectedCourierBoyId || assigning}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700"
+                  >
+                    {assigning ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Assigning...
+                      </>
+                    ) : (
+                      'Assign Courier Boy'
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowAssignModal(false);
+                      setSelectedRequest(null);
+                      setSelectedCourierBoyId('');
+                    }}
+                  >
+                    Cancel
+                  </Button>
                 </div>
               </div>
             </div>

@@ -44,6 +44,16 @@ import CorporateLogin from "./pages/auth/CorporateLogin";
 import CorporateChangePassword from "./pages/auth/CorporateChangePassword";
 import CorporateDashboard from "./pages/corporate/CorporateDashboard";
 import CorporateProtectedRoute from "./components/CorporateProtectedRoute";
+import MedicineProtectedRoute from "./components/MedicineProtectedRoute";
+import MedicineLogin from "./pages/medicine/MedicineLogin";
+import MedicineDashboard from "./pages/medicine/MedicineDashboard";
+import MedicineBooking from "./pages/medicine/MedicineBooking";
+import MedicineHistory from "./pages/medicine/MedicineHistory";
+import MedicineConsignment from "./pages/medicine/MedicineConsignment";
+import MedicineDispatchConsignment from "./pages/medicine/MedicineDispatchConsignment";
+import MedicineManifest from "./pages/medicine/MedicineManifest";
+import MedicineColoader from "./pages/medicine/MedicineColoader";
+import MedicineViewManifest from "./pages/medicine/MedicineViewManifest";
 
 const queryClient = new QueryClient();
 
@@ -133,6 +143,76 @@ const App = () => {
             } 
           />
           
+          {/* Medicine Portal Routes */}
+          <Route path="/medicine" element={<MedicineLogin />} />
+          <Route 
+            path="/medicine/dashboard" 
+            element={
+              <MedicineProtectedRoute>
+                <MedicineDashboard />
+              </MedicineProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/medicine/booking" 
+            element={
+              <MedicineProtectedRoute>
+                <MedicineBooking />
+              </MedicineProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/medicine/history" 
+            element={
+              <MedicineProtectedRoute>
+                <MedicineHistory />
+              </MedicineProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/medicine/consignment" 
+            element={
+              <MedicineProtectedRoute>
+                <MedicineConsignment />
+              </MedicineProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/medicine/dispatch-consignment" 
+            element={
+              <MedicineProtectedRoute>
+                <MedicineDispatchConsignment />
+              </MedicineProtectedRoute>
+            } 
+          />
+
+          <Route 
+            path="/medicine/coloader" 
+            element={
+              <MedicineProtectedRoute>
+                <MedicineColoader />
+              </MedicineProtectedRoute>
+            } 
+          />
+
+          <Route 
+            path="/medicine/manifest" 
+            element={
+              <MedicineProtectedRoute>
+                <MedicineManifest />
+              </MedicineProtectedRoute>
+            } 
+          />
+
+          <Route 
+            path="/medicine/view-manifest" 
+            element={
+              <MedicineProtectedRoute>
+                <MedicineViewManifest />
+              </MedicineProtectedRoute>
+            } 
+          />
+
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
           </Routes>

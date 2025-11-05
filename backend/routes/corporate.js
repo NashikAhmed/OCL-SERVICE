@@ -1,8 +1,10 @@
 import express from 'express';
 import CorporateData from '../models/CorporateData.js';
 import ConsignmentAssignment, { ConsignmentUsage } from '../models/ConsignmentAssignment.js';
+import CourierRequest from '../models/CourierRequest.js';
 import { generateToken, authenticateCorporate, validateLoginInput } from '../middleware/auth.js';
 import { uploadCorporateLogo, handleCorporateLogoUploadError } from '../middleware/corporateLogoUpload.js';
+import S3Service from '../services/s3Service.js';
 
 const router = express.Router();
 
@@ -349,21 +351,28 @@ router.post('/upload-logo', authenticateCorporate, uploadCorporateLogo, handleCo
       });
     }
     
-    // Update corporate record with logo path
-    const logoPath = `/uploads/corporate-logos/${req.file.filename}`;
+    // Upload logo to S3
+    const uploadResult = await S3Service.uploadFile(req.file, 'uploads/corporate-logos');
     
+    if (!uploadResult.success) {
+      return res.status(500).json({
+        error: 'Failed to upload logo to S3'
+      });
+    }
+    
+    // Update corporate record with S3 URL
     const updatedCorporate = await CorporateData.findByIdAndUpdate(
       req.corporate._id,
-      { logo: logoPath },
+      { logo: uploadResult.url },
       { new: true, runValidators: true }
     );
     
-    console.log(`✅ Corporate logo uploaded: ${updatedCorporate.companyName} (${updatedCorporate.corporateId})`);
+    console.log(`✅ Corporate logo uploaded to S3: ${updatedCorporate.companyName} (${updatedCorporate.corporateId})`);
     
     res.json({
       success: true,
       message: 'Logo uploaded successfully',
-      logo: logoPath,
+      logo: uploadResult.url,
       corporate: {
         id: updatedCorporate._id,
         corporateId: updatedCorporate.corporateId,
@@ -727,7 +736,8 @@ router.post('/bookings', authenticateCorporate, async (req, res) => {
 
     // Check if any consignment numbers are available across all assignments
     const usedCount = await ConsignmentUsage.countDocuments({
-      corporateId: req.corporate._id
+      assignmentType: 'corporate',
+      entityId: req.corporate._id
     });
     
     const totalAssigned = assignments.reduce((sum, assignment) => sum + assignment.totalNumbers, 0);
@@ -743,7 +753,7 @@ router.post('/bookings', authenticateCorporate, async (req, res) => {
     // Get next available consignment number for this corporate
     let consignmentNumber;
     try {
-      consignmentNumber = await ConsignmentAssignment.getNextConsignmentNumber(req.corporate._id);
+      consignmentNumber = await ConsignmentAssignment.getNextConsignmentNumber('corporate', req.corporate._id);
     } catch (error) {
       return res.status(400).json({
         success: false,
@@ -773,6 +783,8 @@ router.post('/bookings', authenticateCorporate, async (req, res) => {
     
     // Record consignment usage
     const usage = new ConsignmentUsage({
+      assignmentType: 'corporate',
+      entityId: req.corporate._id,
       corporateId: req.corporate._id,
       consignmentNumber: consignmentNumber,
       bookingReference: consignmentNumber.toString(),
@@ -934,19 +946,38 @@ router.post('/request-courier', authenticateCorporate, async (req, res) => {
       contactPhone,
       urgency,
       specialInstructions,
-      packageCount
+      packageCount,
+      weight
     } = req.body;
 
     // Validate required fields
-    if (!pickupAddress || !contactPerson || !contactPhone) {
+    if (!contactPerson || !contactPhone || weight === undefined || weight === null || weight === '') {
       return res.status(400).json({
         success: false,
-        error: 'Missing required fields: pickupAddress, contactPerson, contactPhone'
+        error: 'Missing required fields: contactPerson, contactPhone, weight'
       });
     }
 
-    // Create courier request record
-    const courierRequest = {
+    const numericWeight = Number(weight);
+    if (Number.isNaN(numericWeight) || numericWeight <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid weight. It must be a positive number.'
+      });
+    }
+
+    // Create courier request record in database
+    const requestData = {
+      ...(pickupAddress ? { pickupAddress: pickupAddress.trim() } : {}),
+      contactPerson,
+      contactPhone,
+      urgency: urgency || 'normal',
+      specialInstructions: specialInstructions || '',
+      packageCount: packageCount || 1,
+      weight: numericWeight
+    };
+
+    const courierRequest = new CourierRequest({
       corporateId: req.corporate._id,
       corporateInfo: {
         corporateId: req.corporate.corporateId,
@@ -954,44 +985,23 @@ router.post('/request-courier', authenticateCorporate, async (req, res) => {
         email: req.corporate.email,
         contactNumber: req.corporate.contactNumber
       },
-      requestData: {
-        pickupAddress,
-        contactPerson,
-        contactPhone,
-        urgency: urgency || 'normal',
-        specialInstructions: specialInstructions || '',
-        packageCount: packageCount || 1
-      },
+      requestData: requestData,
       status: 'pending',
-      requestedAt: new Date(),
       estimatedResponseTime: '10-15 minutes'
-    };
+    });
 
-    // Store courier request in global variable for admin access
-    if (!global.courierRequests) {
-      global.courierRequests = [];
-    }
-    
-    const requestWithId = {
-      ...courierRequest,
-      id: `CR-${Date.now()}`,
-      status: 'pending'
-    };
-    
-    global.courierRequests.unshift(requestWithId); // Add to beginning of array
-    
-    // Keep only last 100 requests to prevent memory issues
-    if (global.courierRequests.length > 100) {
-      global.courierRequests = global.courierRequests.slice(0, 100);
-    }
+    await courierRequest.save();
+
+    // Generate request ID for frontend compatibility
+    const requestId = `CR-${courierRequest._id}`;
 
     // Log the courier request for admin notification
     console.log('🚚 NEW COURIER REQUEST:', {
       timestamp: new Date().toISOString(),
       corporate: req.corporate.companyName,
       corporateId: req.corporate.corporateId,
-      requestId: requestWithId.id,
-      request: requestWithId
+      requestId: requestId,
+      dbId: courierRequest._id
     });
 
     // TODO: Send notification to admin/operations team
@@ -1004,9 +1014,13 @@ router.post('/request-courier', authenticateCorporate, async (req, res) => {
     res.json({
       success: true,
       message: 'Courier request submitted successfully',
-      requestId: requestWithId.id,
+      requestId: requestId,
       estimatedResponseTime: '10-15 minutes',
-      data: requestWithId
+      data: {
+        id: requestId,
+        _id: courierRequest._id,
+        ...courierRequest.toObject()
+      }
     });
 
   } catch (error) {

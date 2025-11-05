@@ -299,7 +299,7 @@ const formSchema = new mongoose.Schema({
       }],
       status: {
         type: String,
-        enum: ['booked', 'assigned', 'partially_assigned', 'picked_up', 'in_transit', 'delivered', 'failed', 'received'],
+        enum: ['booked', 'assigned', 'partially_assigned', 'picked_up', 'in_transit', 'delivered', 'failed', 'received', 'completed'],
         default: 'booked'
       },
       notes: { type: String, trim: true }

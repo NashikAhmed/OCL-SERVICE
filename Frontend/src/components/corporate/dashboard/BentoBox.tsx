@@ -8,7 +8,7 @@ interface BentoBoxProps {
   icon?: LucideIcon;
   className?: string;
   headerAction?: React.ReactNode;
-  size?: 'small' | 'medium' | 'large' | 'wide' | 'tall';
+  size?: 'small' | 'medium' | 'large' | 'wide' | 'tall' | 'full' | 'xlarge';
 }
 
 const BentoBox: React.FC<BentoBoxProps> = ({
@@ -19,7 +19,7 @@ const BentoBox: React.FC<BentoBoxProps> = ({
   headerAction,
   size = 'medium'
 }) => {
-  const sizeClasses = {
+  const sizeClasses: Record<NonNullable<BentoBoxProps['size']>, string> = {
     small: 'col-span-1 row-span-1',
     medium: 'col-span-2 row-span-1',
     large: 'col-span-2 row-span-2',

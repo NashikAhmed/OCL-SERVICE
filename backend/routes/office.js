@@ -1134,36 +1134,204 @@ router.get('/consignments', authenticateOfficeUser, checkPermission('consignment
 // Courier Requests Routes
 router.get('/courier-requests', authenticateOfficeUser, checkPermission('courierRequests'), async (req, res) => {
   try {
-    const CourierComplaint = (await import('../models/CourierComplaint.js')).default;
-    const { page = 1, limit = 10, search = '' } = req.query;
+    const CourierRequest = (await import('../models/CourierRequest.js')).default;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
+    const status = req.query.status;
+    const urgency = req.query.urgency;
+    const search = req.query.search || '';
     
-    const query = search ? { $or: [
-      { complaintNumber: { $regex: search, $options: 'i' } },
-      { customerName: { $regex: search, $options: 'i' } },
-      { customerEmail: { $regex: search, $options: 'i' } }
-    ]} : {};
+    // Build query
+    let query = {};
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+    if (urgency && urgency !== 'all') {
+      query['requestData.urgency'] = urgency;
+    }
+    if (search) {
+      query.$or = [
+        { 'corporateInfo.companyName': { $regex: search, $options: 'i' } },
+        { 'corporateInfo.corporateId': { $regex: search, $options: 'i' } },
+        { 'requestData.contactPerson': { $regex: search, $options: 'i' } }
+      ];
+    }
     
-    const requests = await CourierComplaint.find(query)
-      .sort({ createdAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
+    // Fetch courier requests from database
+    const [requests, totalCount] = await Promise.all([
+      CourierRequest.find(query)
+        .populate('corporateId', 'corporateId companyName email contactNumber')
+        .populate('assignedCourier.courierBoyId', 'fullName email phone')
+        .sort({ requestedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      CourierRequest.countDocuments(query)
+    ]);
     
-    const total = await CourierComplaint.countDocuments(query);
+    // Format requests to match frontend interface
+    const formattedRequests = requests.map(request => ({
+      id: `CR-${request._id}`,
+      _id: request._id,
+      corporateId: request.corporateId?._id || request.corporateInfo?.corporateId,
+      corporateInfo: {
+        corporateId: request.corporateId?.corporateId || request.corporateInfo?.corporateId,
+        companyName: request.corporateId?.companyName || request.corporateInfo?.companyName,
+        email: request.corporateId?.email || request.corporateInfo?.email,
+        contactNumber: request.corporateId?.contactNumber || request.corporateInfo?.contactNumber
+      },
+      requestData: request.requestData,
+      status: request.status,
+      requestedAt: request.requestedAt || request.createdAt,
+      estimatedResponseTime: request.estimatedResponseTime,
+      assignedCourier: request.assignedCourier?.courierBoyId ? {
+        id: request.assignedCourier.courierBoyId._id,
+        name: request.assignedCourier.courierBoyId.fullName || request.assignedCourier.name,
+        phone: request.assignedCourier.courierBoyId.phone || request.assignedCourier.phone
+      } : request.assignedCourier ? {
+        id: request.assignedCourier.courierBoyId,
+        name: request.assignedCourier.name,
+        phone: request.assignedCourier.phone
+      } : undefined,
+      assignedAt: request.assignedAt,
+      completedAt: request.completedAt
+    }));
     
     res.json({
       success: true,
-      data: requests,
+      requests: formattedRequests,
       pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(total / limit),
-        totalCount: total,
-        hasNext: page * limit < total,
-        hasPrev: page > 1
+        currentPage: page,
+        totalPages: Math.ceil(totalCount / limit),
+        totalCount,
+        hasNext: page * limit < totalCount,
+        hasPrev: page > 1,
+        limit
       }
     });
+    
   } catch (error) {
     console.error('Get courier requests error:', error);
-    res.status(500).json({ error: 'Failed to get courier requests.' });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch courier requests'
+    });
+  }
+});
+
+// Update courier request status (Office)
+router.put('/courier-requests/:requestId/status', authenticateOfficeUser, checkPermission('courierRequests'), async (req, res) => {
+  try {
+    const CourierRequest = (await import('../models/CourierRequest.js')).default;
+    const { requestId } = req.params;
+    const { status } = req.body;
+    
+    // Extract MongoDB _id from requestId (format: CR-{_id})
+    const dbId = requestId.startsWith('CR-') ? requestId.substring(3) : requestId;
+    
+    const courierRequest = await CourierRequest.findById(dbId);
+    if (!courierRequest) {
+      return res.status(404).json({
+        success: false,
+        error: 'Courier request not found'
+      });
+    }
+    
+    await courierRequest.updateStatus(status);
+    
+    console.log(`🚚 Office user updating courier request ${requestId} to status: ${status}`, {
+      updatedBy: req.officeUser.username,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json({
+      success: true,
+      message: 'Courier request status updated successfully',
+      requestId,
+      status
+    });
+    
+  } catch (error) {
+    console.error('Update courier request status error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update courier request status'
+    });
+  }
+});
+
+// Assign courier boy to courier request (Office)
+router.put('/courier-requests/:requestId/assign', authenticateOfficeUser, checkPermission('courierRequests'), async (req, res) => {
+  try {
+    const CourierRequest = (await import('../models/CourierRequest.js')).default;
+    const CourierBoy = (await import('../models/CourierBoy.js')).default;
+    const { requestId } = req.params;
+    const { courierBoyId } = req.body;
+    
+    if (!courierBoyId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Courier boy ID is required'
+      });
+    }
+    
+    // Extract MongoDB _id from requestId (format: CR-{_id})
+    const dbId = requestId.startsWith('CR-') ? requestId.substring(3) : requestId;
+    
+    // Find courier request
+    const courierRequest = await CourierRequest.findById(dbId);
+    if (!courierRequest) {
+      return res.status(404).json({
+        success: false,
+        error: 'Courier request not found'
+      });
+    }
+    
+    // Find courier boy
+    const courierBoy = await CourierBoy.findById(courierBoyId);
+    if (!courierBoy) {
+      return res.status(404).json({
+        success: false,
+        error: 'Courier boy not found'
+      });
+    }
+    
+    // Check if courier boy is approved
+    if (courierBoy.status !== 'approved') {
+      return res.status(400).json({
+        success: false,
+        error: 'Only approved courier boys can be assigned'
+      });
+    }
+    
+    // Assign courier boy
+    await courierRequest.assignCourier(courierBoy);
+    
+    console.log(`🚚 Office user assigned courier boy to request ${requestId}`, {
+      courierBoyId: courierBoy._id,
+      courierBoyName: courierBoy.fullName,
+      updatedBy: req.officeUser.username,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json({
+      success: true,
+      message: 'Courier boy assigned successfully',
+      requestId,
+      assignedCourier: {
+        id: courierBoy._id,
+        name: courierBoy.fullName,
+        phone: courierBoy.phone
+      }
+    });
+    
+  } catch (error) {
+    console.error('Assign courier boy error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to assign courier boy'
+    });
   }
 });
 
@@ -1538,9 +1706,18 @@ router.get('/consignment/assignments', authenticateOfficeUser, checkPermission('
         
         // Get usage count for this specific assignment range
         const ConsignmentUsage = (await import('../models/ConsignmentAssignment.js')).ConsignmentUsage;
+        let entityIdForUsage = null;
+        if (assignment.assignmentType === 'corporate' && assignment.corporateId) {
+          entityIdForUsage = assignment.corporateId._id;
+        } else if (assignment.assignmentType === 'office_user' && assignment.officeUserId) {
+          entityIdForUsage = assignment.officeUserId;
+        } else if (assignment.assignmentType === 'courier_boy' && assignment.courierBoyId) {
+          entityIdForUsage = assignment.courierBoyId;
+        }
+
         const usedCountInRange = await ConsignmentUsage.countDocuments({
           assignmentType: assignment.assignmentType,
-          entityId: assignment.assignmentType === 'corporate' ? assignment.corporateId._id : assignment.officeUserId,
+          entityId: entityIdForUsage,
           consignmentNumber: {
             $gte: assignment.startNumber,
             $lte: assignment.endNumber
@@ -1603,6 +1780,146 @@ router.get('/consignment/assignments', authenticateOfficeUser, checkPermission('
     console.error('Get consignment assignments error:', error);
     res.status(500).json({ 
       error: 'Failed to get consignment assignments.' 
+    });
+  }
+});
+
+// Get consignment usage for a specific courier boy
+router.get('/consignment/usage/courier-boy/:courierBoyId', authenticateOfficeUser, checkPermission('consignmentManagement'), async (req, res) => {
+  try {
+    const { courierBoyId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const ConsignmentAssignment = (await import('../models/ConsignmentAssignment.js')).default;
+    const ConsignmentUsage = (await import('../models/ConsignmentAssignment.js')).ConsignmentUsage;
+    const CourierBoy = (await import('../models/CourierBoy.js')).default;
+
+    // Get an active assignment for this courier boy (latest by assignedAt)
+    const assignment = await ConsignmentAssignment.findOne({
+      assignmentType: 'courier_boy',
+      courierBoyId: courierBoyId,
+      isActive: true
+    })
+    .sort({ assignedAt: -1 })
+    .populate('courierBoyId', 'fullName email phone area');
+
+    if (!assignment) {
+      // If no single active assignment found, still return summary across all courier boy assignments
+      const courier = await CourierBoy.findById(courierBoyId).select('fullName email phone area');
+      if (!courier) {
+        return res.status(404).json({ error: 'Courier boy not found.' });
+      }
+
+      const allAssignments = await ConsignmentAssignment.find({
+        assignmentType: 'courier_boy',
+        courierBoyId: courierBoyId,
+        isActive: true
+      }).lean();
+
+      const totalAssigned = allAssignments.reduce((sum, a) => sum + a.totalNumbers, 0);
+      const totalUsed = await ConsignmentUsage.countDocuments({ assignmentType: 'courier_boy', entityId: courierBoyId });
+
+      return res.json({
+        success: true,
+        data: {
+          assignment: {
+            assignmentType: 'courier_boy',
+            assignedToName: courier.fullName,
+            assignedToEmail: courier.email,
+            courierBoy: courier,
+            startNumber: allAssignments.length ? Math.min(...allAssignments.map(a => a.startNumber)) : 0,
+            endNumber: allAssignments.length ? Math.max(...allAssignments.map(a => a.endNumber)) : 0,
+            totalNumbers: totalAssigned
+          },
+          usage: [],
+          statistics: {
+            totalAssigned,
+            totalUsed,
+            available: totalAssigned - totalUsed,
+            usagePercentage: totalAssigned > 0 ? Math.round((totalUsed / totalAssigned) * 100) : 0
+          },
+          pagination: {
+            currentPage: page,
+            totalPages: 0,
+            totalUsage: 0,
+            hasNextPage: false,
+            hasPrevPage: false
+          }
+        }
+      });
+    }
+
+    // Get usage within this assignment range
+    const usage = await ConsignmentUsage.find({
+      assignmentType: 'courier_boy',
+      entityId: courierBoyId,
+      consignmentNumber: {
+        $gte: assignment.startNumber,
+        $lte: assignment.endNumber
+      }
+    })
+    .sort({ usedAt: -1 })
+    .skip(skip)
+    .limit(limit)
+    .lean();
+
+    const totalUsage = await ConsignmentUsage.countDocuments({
+      assignmentType: 'courier_boy',
+      entityId: courierBoyId,
+      consignmentNumber: {
+        $gte: assignment.startNumber,
+        $lte: assignment.endNumber
+      }
+    });
+
+    const totalAssigned = assignment.totalNumbers;
+    const totalUsed = usage.length; // within the page; compute full used in range
+    const fullUsed = await ConsignmentUsage.countDocuments({
+      assignmentType: 'courier_boy',
+      entityId: courierBoyId,
+      consignmentNumber: {
+        $gte: assignment.startNumber,
+        $lte: assignment.endNumber
+      }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        assignment: {
+          _id: assignment._id,
+          assignmentType: 'courier_boy',
+          assignedToName: assignment.assignedToName,
+          assignedToEmail: assignment.assignedToEmail,
+          startNumber: assignment.startNumber,
+          endNumber: assignment.endNumber,
+          totalNumbers: assignment.totalNumbers,
+          assignedAt: assignment.assignedAt,
+          notes: assignment.notes,
+          courierBoy: assignment.courierBoyId
+        },
+        usage: usage,
+        statistics: {
+          totalAssigned,
+          totalUsed: fullUsed,
+          available: totalAssigned - fullUsed,
+          usagePercentage: totalAssigned > 0 ? Math.round((fullUsed / totalAssigned) * 100) : 0
+        },
+        pagination: {
+          currentPage: page,
+          totalPages: Math.ceil(totalUsage / limit),
+          totalUsage: totalUsage,
+          hasNextPage: page < Math.ceil(totalUsage / limit),
+          hasPrevPage: page > 1
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get courier boy consignment usage error:', error);
+    res.status(500).json({ 
+      error: 'Failed to get courier boy consignment usage.' 
     });
   }
 });
@@ -1702,6 +2019,74 @@ router.get('/consignment/office-users', authenticateOfficeUser, checkPermission(
   } catch (error) {
     console.error('Get office users error:', error);
     res.status(500).json({ error: 'Failed to fetch office users.' });
+  }
+});
+
+// Get courier boys for consignment assignment
+router.get('/consignment/courier-boys', authenticateOfficeUser, checkPermission('consignmentManagement'), async (req, res) => {
+  try {
+    const CourierBoy = (await import('../models/CourierBoy.js')).default;
+    const { default: ConsignmentAssignment, ConsignmentUsage } = await import('../models/ConsignmentAssignment.js');
+    
+    // Fetch courier boys and their assignments in parallel
+    const [courierBoys, assignments] = await Promise.all([
+      CourierBoy.find({ status: 'approved' })
+        .select('_id fullName email phone area')
+        .sort({ fullName: 1 })
+        .lean(),
+      ConsignmentAssignment.find({ 
+        assignmentType: 'courier_boy',
+        isActive: true 
+      })
+        .populate('courierBoyId', 'fullName email phone area')
+        .lean()
+    ]);
+
+    // Map assignments to courier boys and calculate usage
+    const courierBoysWithAssignments = courierBoys.map(async (courier) => {
+      const courierAssignments = assignments.filter(assignment => {
+        // Handle both populated and unpopulated courierBoyId
+        const assignmentCourierId = assignment.courierBoyId?._id || assignment.courierBoyId;
+        return String(assignmentCourierId) === String(courier._id);
+      }).map(async (assignment) => {
+        // Calculate usage for this assignment
+        const usedCount = await ConsignmentUsage.countDocuments({
+          assignmentType: 'courier_boy',
+          entityId: courier._id,
+          consignmentNumber: { $gte: assignment.startNumber, $lte: assignment.endNumber }
+        });
+        
+        const totalNumbers = assignment.totalNumbers;
+        const usagePercentage = totalNumbers > 0 ? Math.round((usedCount / totalNumbers) * 100) : 0;
+        
+        return {
+          ...assignment,
+          usedCount,
+          availableCount: totalNumbers - usedCount,
+          usagePercentage
+        };
+      });
+
+      // Wait for all usage calculations to complete
+      const resolvedAssignments = await Promise.all(courierAssignments);
+
+      return {
+        ...courier,
+        consignmentAssignments: resolvedAssignments,
+        hasAssignments: resolvedAssignments.length > 0
+      };
+    });
+
+    // Wait for all courier boys to be processed
+    const finalCourierBoys = await Promise.all(courierBoysWithAssignments);
+
+    res.json({
+      success: true,
+      data: finalCourierBoys
+    });
+  } catch (error) {
+    console.error('Get courier boys error:', error);
+    res.status(500).json({ error: 'Failed to fetch courier boys.' });
   }
 });
 
@@ -1848,6 +2233,216 @@ router.post('/consignment/assign-office-user', authenticateOfficeUser, checkPerm
     console.error('Assign consignment numbers to office user error:', error);
     res.status(500).json({ 
       error: 'Failed to assign consignment numbers to office user.' 
+    });
+  }
+});
+
+// Assign consignment numbers to courier boy
+router.post('/consignment/assign-courier-boy', authenticateOfficeUser, checkPermission('consignmentManagement'), async (req, res) => {
+  try {
+    const { courierBoyId, startNumber, endNumber, notes } = req.body;
+
+    // Validate required fields
+    if (!courierBoyId || !startNumber || !endNumber) {
+      return res.status(400).json({ 
+        error: 'Courier Boy ID, start number, and end number are required.' 
+      });
+    }
+
+    // Validate range
+    const ConsignmentAssignment = (await import('../models/ConsignmentAssignment.js')).default;
+    try {
+      ConsignmentAssignment.validateRange(parseInt(startNumber), parseInt(endNumber));
+    } catch (validationError) {
+      return res.status(400).json({ 
+        error: validationError.message 
+      });
+    }
+
+    // Check if courier boy exists
+    const CourierBoy = (await import('../models/CourierBoy.js')).default;
+    const courierBoy = await CourierBoy.findById(courierBoyId);
+
+    if (!courierBoy) {
+      return res.status(404).json({ 
+        error: 'Courier boy not found.' 
+      });
+    }
+
+    // Check if range is available
+    const isAvailable = await ConsignmentAssignment.isRangeAvailable(
+      parseInt(startNumber), 
+      parseInt(endNumber)
+    );
+
+    if (!isAvailable) {
+      return res.status(409).json({ 
+        error: 'The specified number range is already assigned to another entity.' 
+      });
+    }
+
+    // Create assignment
+    const assignment = new ConsignmentAssignment({
+      assignmentType: 'courier_boy',
+      courierBoyId: courierBoyId,
+      assignedToName: courierBoy.fullName,
+      assignedToEmail: courierBoy.email,
+      startNumber: parseInt(startNumber),
+      endNumber: parseInt(endNumber),
+      totalNumbers: parseInt(endNumber) - parseInt(startNumber) + 1,
+      assignedBy: req.user._id,
+      notes: notes || ''
+    });
+
+    await assignment.save();
+
+    res.json({
+      success: true,
+      message: `Successfully assigned consignment numbers ${startNumber}-${endNumber} to ${courierBoy.fullName}`,
+      data: assignment
+    });
+  } catch (error) {
+    console.error('Assign consignment numbers to courier boy error:', error);
+    res.status(500).json({ 
+      error: 'Failed to assign consignment numbers to courier boy.' 
+    });
+  }
+});
+
+// Get medicine users for consignment assignment
+router.get('/consignment/medicine-users', authenticateOfficeUser, checkPermission('consignmentManagement'), async (req, res) => {
+  try {
+    const MedicineUser = (await import('../models/MedicineUser.js')).default;
+    const { default: ConsignmentAssignment, ConsignmentUsage } = await import('../models/ConsignmentAssignment.js');
+    
+    // Fetch medicine users and their assignments in parallel
+    const [medicineUsers, assignments] = await Promise.all([
+      MedicineUser.find({ isActive: true })
+        .select('_id name email')
+        .sort({ name: 1 })
+        .lean(),
+      ConsignmentAssignment.find({ 
+        assignmentType: 'medicine',
+        isActive: true 
+      })
+        .populate('medicineUserId', 'name email')
+        .lean()
+    ]);
+
+    // Map assignments to medicine users and calculate usage
+    const medicineUsersWithAssignments = medicineUsers.map(async (user) => {
+      const userAssignments = assignments.filter(assignment => 
+        assignment.medicineUserId && String(assignment.medicineUserId._id) === String(user._id)
+      ).map(async (assignment) => {
+        // Calculate usage for this assignment
+        const usedCount = await ConsignmentUsage.countDocuments({
+          assignmentType: 'medicine',
+          entityId: user._id,
+          consignmentNumber: { $gte: assignment.startNumber, $lte: assignment.endNumber }
+        });
+        
+        const totalNumbers = assignment.totalNumbers;
+        const usagePercentage = totalNumbers > 0 ? Math.round((usedCount / totalNumbers) * 100) : 0;
+        
+        return {
+          ...assignment,
+          usedCount,
+          availableCount: totalNumbers - usedCount,
+          usagePercentage
+        };
+      });
+
+      // Wait for all usage calculations to complete
+      const resolvedAssignments = await Promise.all(userAssignments);
+
+      return {
+        ...user,
+        consignmentAssignments: resolvedAssignments,
+        hasAssignments: resolvedAssignments.length > 0
+      };
+    });
+
+    // Wait for all medicine users to be processed
+    const finalMedicineUsers = await Promise.all(medicineUsersWithAssignments);
+
+    res.json({
+      success: true,
+      data: finalMedicineUsers
+    });
+  } catch (error) {
+    console.error('Get medicine users error:', error);
+    res.status(500).json({ error: 'Failed to fetch medicine users.' });
+  }
+});
+
+// Assign consignment numbers to medicine user
+router.post('/consignment/assign-medicine-user', authenticateOfficeUser, checkPermission('consignmentManagement'), async (req, res) => {
+  try {
+    const { medicineUserId, startNumber, endNumber, notes } = req.body;
+
+    // Validate required fields
+    if (!medicineUserId || !startNumber || !endNumber) {
+      return res.status(400).json({ 
+        error: 'Medicine User ID, start number, and end number are required.' 
+      });
+    }
+
+    // Validate range
+    const ConsignmentAssignment = (await import('../models/ConsignmentAssignment.js')).default;
+    try {
+      ConsignmentAssignment.validateRange(parseInt(startNumber), parseInt(endNumber));
+    } catch (validationError) {
+      return res.status(400).json({ 
+        error: validationError.message 
+      });
+    }
+
+    // Check if medicine user exists
+    const MedicineUser = (await import('../models/MedicineUser.js')).default;
+    const medicineUser = await MedicineUser.findById(medicineUserId);
+
+    if (!medicineUser) {
+      return res.status(404).json({ 
+        error: 'Medicine user not found.' 
+      });
+    }
+
+    // Check if range is available
+    const isAvailable = await ConsignmentAssignment.isRangeAvailable(
+      parseInt(startNumber), 
+      parseInt(endNumber)
+    );
+
+    if (!isAvailable) {
+      return res.status(409).json({ 
+        error: 'The specified number range is already assigned to another entity.' 
+      });
+    }
+
+    // Create assignment
+    const assignment = new ConsignmentAssignment({
+      assignmentType: 'medicine',
+      medicineUserId: medicineUserId,
+      assignedToName: medicineUser.name,
+      assignedToEmail: medicineUser.email,
+      startNumber: parseInt(startNumber),
+      endNumber: parseInt(endNumber),
+      totalNumbers: parseInt(endNumber) - parseInt(startNumber) + 1,
+      assignedBy: req.user._id,
+      notes: notes || ''
+    });
+
+    await assignment.save();
+
+    res.json({
+      success: true,
+      message: `Successfully assigned consignment numbers ${startNumber}-${endNumber} to ${medicineUser.name}`,
+      data: assignment
+    });
+  } catch (error) {
+    console.error('Assign consignment numbers to medicine user error:', error);
+    res.status(500).json({ 
+      error: 'Failed to assign consignment numbers to medicine user.' 
     });
   }
 });

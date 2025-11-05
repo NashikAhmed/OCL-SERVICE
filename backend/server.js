@@ -17,13 +17,17 @@ import settlementRoutes from "./routes/settlement.js";
 import invoicePdfRoutes from "./routes/invoice-pdf.js";
 import courierComplaintRoutes from "./routes/courier-complaints.js";
 import employeeRoutes from "./routes/employee.js";
+import courierBoyRoutes from "./routes/courier-boy.js";
 import otpRoutes from "./routes/otp.js";
+import imageProxyRoutes from "./routes/image-proxy.js";
+import medicineRoutes from "./routes/medicine.js";
 import FormData from "./models/FormData.js";
 import PinCodeArea from "./models/PinCodeArea.js";
 import CorporateData from "./models/CorporateData.js";
 import CorporatePricing from "./models/CorporatePricing.js";
 import Admin from "./models/Admin.js";
 import OfficeUser from "./models/OfficeUser.js";
+import MedicineUser from "./models/MedicineUser.js";
 import Coloader from "./models/Coloader.js";
 import Employee from "./models/Employee.js";
 
@@ -101,7 +105,10 @@ app.use("/api/settlement", settlementRoutes);
 app.use("/api/invoice", invoicePdfRoutes);
 app.use("/api/courier-complaints", courierComplaintRoutes);
 app.use("/api/employee", employeeRoutes);
+app.use("/api/courier-boy", courierBoyRoutes);
 app.use("/api/otp", otpRoutes);
+app.use("/api/images", imageProxyRoutes);
+app.use("/api/medicine", medicineRoutes);
 
 // Serve corporate logos
 app.use('/uploads/corporate-logos', express.static(path.join(__dirname, 'uploads/corporate-logos')));
@@ -202,7 +209,8 @@ app.post("/api/form", async (req, res) => {
           .map((item) => {
             if (typeof item === 'string') return item;
             if (item && typeof item === 'object') {
-              return item.url || item.path || item.dataURL || item.data || item.name || '';
+              // Check for serverPath first (from uploaded files), then other common path properties
+              return item.serverPath || item.url || item.path || item.dataURL || item.data || item.name || '';
             }
             return '';
           })
@@ -247,7 +255,11 @@ app.post("/api/form", async (req, res) => {
       updateData.receiverLandmark = formData.landmark || '';
     } else if (formType === 'full') {
       // Merge all steps into one document
-      const { originData, destinationData, shipmentData, uploadData, paymentData } = req.body;
+      const { originData, destinationData, shipmentData, uploadData, paymentData, consignmentNumber } = req.body;
+      // Debug: Log the original invoice number
+      console.log('🔍 DEBUG - Original invoice number from frontend:', uploadData?.invoiceNumber);
+      console.log('🔍 DEBUG - Consignment number from frontend:', consignmentNumber);
+      
       // sanitize uploadData
       const sanitizedUploadData = {
         ...uploadData,
@@ -255,18 +267,34 @@ app.post("/api/form", async (req, res) => {
         packageImages: normalizeToStringArray(uploadData?.packageImages),
         invoiceImages: normalizeToStringArray(uploadData?.invoiceImages),
         invoiceValue: uploadData?.invoiceValue !== undefined ? Number(uploadData.invoiceValue) : undefined,
-        acceptTerms: Boolean(uploadData?.acceptTerms)
+        acceptTerms: Boolean(uploadData?.acceptTerms),
+        // Preserve the original invoice number as entered by user
+        invoiceNumber: uploadData?.invoiceNumber || ''
       };
+      
+      // Debug: Log the sanitized invoice number
+      console.log('🔍 DEBUG - Sanitized invoice number:', sanitizedUploadData.invoiceNumber);
       updateData.originData = originData;
       updateData.destinationData = destinationData;
       updateData.shipmentData = shipmentData;
       updateData.uploadData = sanitizedUploadData;
-      // Extract numeric consignment number from uploadData.invoiceNumber if present
-      if (sanitizedUploadData?.invoiceNumber) {
-        const numericCn = parseInt(String(sanitizedUploadData.invoiceNumber).replace(/[^0-9]/g, ''));
-        if (Number.isFinite(numericCn)) {
-          updateData.consignmentNumber = numericCn;
-        }
+      
+      // Use the consignment number provided by the frontend (from office user assignment)
+      // If no consignment number provided, fall back to timestamp-based generation
+      if (consignmentNumber && typeof consignmentNumber === 'number') {
+        updateData.consignmentNumber = consignmentNumber;
+        console.log('✅ Using provided consignment number:', consignmentNumber);
+      } else {
+        // Fallback: Generate unique consignment number (separate from invoice number)
+        // Use timestamp-based approach for unique consignment numbers
+        const generateConsignmentNumber = () => {
+          const timestamp = Date.now();
+          const randomSuffix = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+          return parseInt(`${timestamp.toString().slice(-8)}${randomSuffix}`);
+        };
+        
+        updateData.consignmentNumber = generateConsignmentNumber();
+        console.log('⚠️ No consignment number provided, generated fallback:', updateData.consignmentNumber);
       }
       updateData.paymentData = paymentData;
       // Also backfill flat fields for backward compatibility/queries
@@ -299,6 +327,9 @@ app.post("/api/form", async (req, res) => {
       updateData.formCompleted = true;
     }
 
+    // Debug: Log what we're about to save
+    console.log('🔍 DEBUG - About to save invoice number:', updateData.uploadData?.invoiceNumber);
+    
     let savedForm;
     
     if (existingForm) {
@@ -313,6 +344,70 @@ app.post("/api/form", async (req, res) => {
       console.log('Form data created successfully:', savedForm._id);
     }
     
+    // Debug: Log what was actually saved
+    console.log('🔍 DEBUG - Saved invoice number in database:', savedForm.uploadData?.invoiceNumber);
+    
+    // Send shipment confirmation email if this is a full booking
+    if (formType === 'full' && savedForm.consignmentNumber) {
+      try {
+        const emailService = (await import('./services/emailService.js')).default;
+        
+        // Prepare shipment data for email
+        const shipmentData = {
+          consignmentNumber: savedForm.consignmentNumber,
+          invoiceNumber: savedForm.uploadData?.invoiceNumber || 'N/A',
+          receiverCompanyName: savedForm.destinationData?.companyName,
+          receiverConcernPerson: savedForm.destinationData?.name,
+          destinationCity: savedForm.destinationData?.city,
+          bookingDate: savedForm.createdAt,
+          senderCompanyName: savedForm.originData?.companyName,
+          senderConcernPerson: savedForm.originData?.name,
+          recipientConcernPerson: savedForm.destinationData?.name,
+          recipientPinCode: savedForm.destinationData?.pincode,
+          recipientMobileNumber: savedForm.destinationData?.mobileNumber,
+          invoiceValue: savedForm.uploadData?.invoiceValue,
+          packageImages: (savedForm.uploadData?.packageImages || []).map(imagePath => {
+            // Clean up any @ symbol at the beginning of the URL
+            let cleanPath = imagePath;
+            if (cleanPath.startsWith('@')) {
+              cleanPath = cleanPath.substring(1);
+            }
+            
+            // If it's already a full URL, return as is, otherwise convert filename to full S3 URL
+            if (cleanPath.startsWith('https://')) {
+              return cleanPath;
+            }
+            const bucketName = process.env.AWS_BUCKET_NAME || 'ocl-services-uploads';
+            const region = process.env.AWS_REGION || 'ap-south-1';
+            return `https://${bucketName}.s3.${region}.amazonaws.com/uploads/screenshots/package-images/${cleanPath}`;
+          }),
+          invoiceImages: (savedForm.uploadData?.invoiceImages || []).map(imagePath => {
+            // Clean up any @ symbol at the beginning of the URL
+            let cleanPath = imagePath;
+            if (cleanPath.startsWith('@')) {
+              cleanPath = cleanPath.substring(1);
+            }
+            
+            // If it's already a full URL, return as is, otherwise convert filename to full S3 URL
+            if (cleanPath.startsWith('https://')) {
+              return cleanPath;
+            }
+            const bucketName = process.env.AWS_BUCKET_NAME || 'ocl-services-uploads';
+            const region = process.env.AWS_REGION || 'ap-south-1';
+            return `https://${bucketName}.s3.${region}.amazonaws.com/uploads/screenshots/invoice-images/${cleanPath}`;
+          }),
+          senderEmail: savedForm.originData?.email
+        };
+        
+        // Send confirmation email
+        await emailService.sendShipmentConfirmationEmail(shipmentData);
+        console.log(`✅ Shipment confirmation email sent to ${shipmentData.senderEmail}`);
+        
+      } catch (emailError) {
+        console.error('❌ Failed to send shipment confirmation email:', emailError);
+        // Don't fail the booking if email fails
+      }
+    }
 
     res.json({ 
       success: true, 
@@ -341,6 +436,51 @@ app.post("/api/form", async (req, res) => {
         error: err.message || 'Internal server error'
       });
     }
+  }
+});
+
+// Test shipment confirmation email endpoint
+app.post("/api/test-shipment-email", async (req, res) => {
+  try {
+    const emailService = (await import('./services/emailService.js')).default;
+    
+    // Test data based on the design requirements
+    const testShipmentData = {
+      consignmentNumber: 12345678,
+      invoiceNumber: 12345678,
+      receiverCompanyName: 'L&T',
+      receiverConcernPerson: 'L&T',
+      destinationCity: 'Sivsagar',
+      bookingDate: new Date(),
+      senderCompanyName: 'Schwing Stetter',
+      senderConcernPerson: 'Schiwing',
+      recipientConcernPerson: 'Ramesh Agarawal',
+      recipientPinCode: '781002',
+      recipientMobileNumber: '9861242135',
+      invoiceValue: 243000,
+      packageImages: [
+        'https://via.placeholder.com/80x80/ff6b6b/ffffff?text=Package1',
+        'https://via.placeholder.com/80x80/4ecdc4/ffffff?text=Package2',
+        'https://via.placeholder.com/80x80/45b7d1/ffffff?text=Package3'
+      ],
+      senderEmail: req.body.testEmail || 'test@example.com'
+    };
+    
+    const result = await emailService.sendShipmentConfirmationEmail(testShipmentData);
+    
+    res.json({
+      success: true,
+      message: 'Test shipment confirmation email sent successfully!',
+      result: result
+    });
+    
+  } catch (error) {
+    console.error('Test email error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to send test email',
+      details: error.message
+    });
   }
 });
 
@@ -1413,6 +1553,10 @@ const startServer = async () => {
     // Check office users collection
     const officeUserCount = await OfficeUser.countDocuments();
     console.log(`🏢 OfficeUser collection has ${officeUserCount} records`);
+    // Initialize default medicine user
+    await MedicineUser.createDefaultMedicineUser();
+    const medicineUserCount = await MedicineUser.countDocuments();
+    console.log(`💊 MedicineUser collection has ${medicineUserCount} records`);
     
     // Check employees collection
     const employeeCount = await Employee.countDocuments();

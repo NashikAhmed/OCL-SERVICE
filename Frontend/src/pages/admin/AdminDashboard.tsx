@@ -22,6 +22,7 @@ import {
   CheckCircle,
   Building2,
   Package,
+  Bike,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { isAdminLoggedIn, getStoredAdminInfo, getStoredToken, clearAuthData, isTokenExpired, getTimeUntilExpiry } from '@/utils/auth';
@@ -44,6 +45,9 @@ import EmployeeManagement from '@/components/admin/EmployeeManagement';
 import AssignColoader from '@/components/admin/AssignColoader';
 import ReceivedConsignment from '@/components/admin/ReceivedConsignment';
 import BaggingManagement from '@/components/admin/BaggingManagement';
+import AssignCourierBoy from '@/components/admin/AssignCourierBoy';
+import CourierBoyManagement from '@/components/admin/CourierBoyManagement';
+import SingleQuotation from '@/components/admin/SingleQuotation';
 
 interface AdminInfo {
   id: string;
@@ -482,6 +486,45 @@ const AdminDashboard = () => {
             {!isSidebarCollapsed && <span className="font-medium text-sm">Bagging Management</span>}
           </button>
 
+          <button
+            onClick={() => setActiveTab('singleQuotation')}
+            className={`w-full ${isSidebarCollapsed ? 'flex justify-center p-2' : 'text-left flex items-center gap-3 px-3 py-2'} rounded-xl transition ${
+              activeTab === 'singleQuotation'
+                ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-md'
+                : 'text-gray-700 hover:bg-gray-50'
+            }`}
+            title={isSidebarCollapsed ? "Single Quotation" : ""}
+          >
+            <FileText className="h-5 w-5" />
+            {!isSidebarCollapsed && <span className="font-medium text-sm">Single Quotation</span>}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('courierBoyManagement')}
+            className={`w-full ${isSidebarCollapsed ? 'flex justify-center p-2' : 'text-left flex items-center gap-3 px-3 py-2'} rounded-xl transition ${
+              activeTab === 'courierBoyManagement'
+                ? 'bg-gradient-to-r from-green-500 to-green-600 text-white shadow-md'
+                : 'text-gray-700 hover:bg-gray-50'
+            }`}
+            title={isSidebarCollapsed ? "Courier Boy Management" : ""}
+          >
+            <Bike className="h-5 w-5" />
+            {!isSidebarCollapsed && <span className="font-medium text-sm">Courier Boy Management</span>}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('assignCourierBoy')}
+            className={`w-full ${isSidebarCollapsed ? 'flex justify-center p-2' : 'text-left flex items-center gap-3 px-3 py-2'} rounded-xl transition ${
+              activeTab === 'assignCourierBoy'
+                ? 'bg-gradient-to-r from-cyan-500 to-cyan-600 text-white shadow-md'
+                : 'text-gray-700 hover:bg-gray-50'
+            }`}
+            title={isSidebarCollapsed ? "Assign Courier Boy" : ""}
+          >
+            <Bike className="h-5 w-5" />
+            {!isSidebarCollapsed && <span className="font-medium text-sm">Assign Courier Boy</span>}
+          </button>
+
             {adminInfo?.role === 'super_admin' && (
               <button
                 onClick={() => setActiveTab('admins')}
@@ -684,6 +727,9 @@ const AdminDashboard = () => {
           {activeTab === 'manageOrders' && <AssignColoader />}
           {activeTab === 'receivedOrders' && <ReceivedConsignment />}
           {activeTab === 'baggingManagement' && <BaggingManagement />}
+          {activeTab === 'singleQuotation' && <SingleQuotation />}
+          {activeTab === 'courierBoyManagement' && <CourierBoyManagement />}
+          {activeTab === 'assignCourierBoy' && <AssignCourierBoy />}
           {activeTab === 'admins' && adminInfo?.role === 'super_admin' && (
             <AdminManagement />
           )}

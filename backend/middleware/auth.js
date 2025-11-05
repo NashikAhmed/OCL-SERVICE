@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import Admin from '../models/Admin.js';
 import OfficeUser from '../models/OfficeUser.js';
 import CorporateData from '../models/CorporateData.js';
+import MedicineUser from '../models/MedicineUser.js';
 
 // Generate JWT token
 export const generateToken = (userId, type = 'admin') => {
@@ -320,6 +321,19 @@ export const authenticateToken = async (req, res, next) => {
       return;
     }
     
+    if (decoded.type === 'medicine') {
+      const medicine = await MedicineUser.findById(decoded.userId).select('-password');
+      if (!medicine || !medicine.isActive) {
+        return res.status(401).json({ 
+          error: 'Invalid token. Medicine user not found.' 
+        });
+      }
+      req.user = medicine;
+      req.medicine = medicine;
+      next();
+      return;
+    }
+    
     return res.status(401).json({ 
       error: 'Invalid token type.' 
     });
@@ -369,4 +383,50 @@ export const validateLoginInput = (req, res, next) => {
   }
   
   next();
+};
+
+// Middleware to verify JWT token for medicine routes
+export const authenticateMedicine = async (req, res, next) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    if (!token) {
+      return res.status(401).json({ 
+        error: 'Access denied. No token provided.' 
+      });
+    }
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'ocl-admin-secret-key-2024');
+    if (decoded.type !== 'medicine') {
+      return res.status(401).json({ 
+        error: 'Invalid token type for medicine access.' 
+      });
+    }
+    const medicine = await MedicineUser.findById(decoded.userId).select('-password');
+    if (!medicine) {
+      return res.status(401).json({ 
+        error: 'Invalid token. Medicine user not found.' 
+      });
+    }
+    if (!medicine.isActive) {
+      return res.status(401).json({ 
+        error: 'Medicine account is deactivated.' 
+      });
+    }
+    req.medicine = medicine;
+    next();
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ 
+        error: 'Token expired. Please login again.' 
+      });
+    } else if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ 
+        error: 'Invalid token.' 
+      });
+    } else {
+      console.error('Auth middleware error:', error);
+      return res.status(500).json({ 
+        error: 'Authentication error.' 
+      });
+    }
+  }
 };

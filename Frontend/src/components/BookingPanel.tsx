@@ -2399,7 +2399,7 @@ const BookingPanel: React.FC = () => {
       console.log('Starting booking submission process...');
       
       // 1) Fetch next consignment number for this office user (numeric only)
-      //    and inject it as the invoice/unique number for this booking
+      //    This will be used as the consignment number (separate from invoice number)
       let nextConsignmentNumber: number | null = null;
       try {
         const officeToken = localStorage.getItem('officeToken');
@@ -2413,8 +2413,8 @@ const BookingPanel: React.FC = () => {
         if (!nextConsignmentNumber) {
           throw new Error('No consignment number available');
         }
-        // Auto-fill invoiceNumber with numeric consignment number
-        setUploadData(prev => ({ ...prev, invoiceNumber: String(nextConsignmentNumber) }));
+        // Keep the original invoice number as entered by user
+        // setUploadData(prev => ({ ...prev, invoiceNumber: String(nextConsignmentNumber) }));
       } catch (e: any) {
         const msg = e?.response?.data?.error || e?.message || 'Failed to get next consignment number';
         setSubmitError(msg);
@@ -2497,10 +2497,17 @@ const BookingPanel: React.FC = () => {
               if (!file.uploaded) {
                 const uploadedFile = result.files?.find((f: any) => f.originalName === file.file.name);
                 if (uploadedFile) {
+                  // Clean up any @ symbol that might be in the URL
+                  let cleanUrl = uploadedFile.url;
+                  if (cleanUrl && cleanUrl.startsWith('@')) {
+                    cleanUrl = cleanUrl.substring(1);
+                  }
+                  
                   return {
                     ...file,
                     uploaded: true,
-                    serverPath: uploadedFile.filename
+                    serverPath: cleanUrl, // Store the clean S3 URL
+                    filename: uploadedFile.fileName // Keep filename for reference
                   };
                 }
               }
@@ -2537,14 +2544,17 @@ const BookingPanel: React.FC = () => {
         );
       }
 
+      // Debug: Log the original invoice number from state
+      console.log('🔍 DEBUG - Frontend invoice number from state:', uploadData.invoiceNumber);
+      
       // Prepare upload data with server paths
       const processedUploadData = {
         ...uploadData,
         // Parse numeric fields to remove commas and convert to numbers
         totalPackages: parseInvoiceValue(uploadData.totalPackages),
         invoiceValue: parseInvoiceValue(uploadData.invoiceValue),
-        // Ensure invoiceNumber is set to numeric next consignment number
-        invoiceNumber: nextConsignmentNumber ? String(nextConsignmentNumber) : uploadData.invoiceNumber,
+        // Keep the original invoice number as entered by user
+        invoiceNumber: uploadData.invoiceNumber,
         packageImages: uploadedPackageImages
           .filter((file: any) => file.uploaded && file.serverPath)
           .map((file: any) => file.serverPath),
@@ -2552,6 +2562,9 @@ const BookingPanel: React.FC = () => {
           .filter((file: any) => file.uploaded && file.serverPath)
           .map((file: any) => file.serverPath)
       };
+      
+      // Debug: Log the processed invoice number being sent
+      console.log('🔍 DEBUG - Frontend processed invoice number:', processedUploadData.invoiceNumber);
 
       // Process shipmentData to convert numeric fields
       const processedShipmentData = {
@@ -2590,7 +2603,8 @@ const BookingPanel: React.FC = () => {
         uploadData: processedUploadData,
         paymentData: { ...paymentData },
         billData: { ...billData },
-        detailsData: processedDetailsData
+        detailsData: processedDetailsData,
+        consignmentNumber: nextConsignmentNumber // Include the consignment number from office user assignment
       };
 
       console.log('🚀 Starting booking submission...');
@@ -2617,14 +2631,29 @@ const BookingPanel: React.FC = () => {
       // 3) Record consignment usage (non-blocking)
       try {
         const officeToken = localStorage.getItem('officeToken');
-        if (officeToken && (nextConsignmentNumber || uploadData.invoiceNumber)) {
+        if (officeToken && nextConsignmentNumber) {
           await axios.post(`${API_BASE}/api/office/consignment/use`, {
-            consignmentNumber: nextConsignmentNumber ?? parseInt(uploadData.invoiceNumber),
+            consignmentNumber: nextConsignmentNumber,
             bookingReference: backendId || fallbackId,
             bookingData: fullPayload
           }, {
             headers: { Authorization: `Bearer ${officeToken}` }
           });
+          
+          // Dispatch event to notify other components about consignment usage update
+          const officeUserId = localStorage.getItem('officeUserId');
+          if (officeUserId) {
+            const event = new CustomEvent('consignmentUsageUpdated', {
+              detail: {
+                officeUserId: officeUserId,
+                assignmentType: 'office_user',
+                consignmentNumber: nextConsignmentNumber,
+                bookingReference: backendId || fallbackId
+              }
+            });
+            window.dispatchEvent(event);
+            console.log('Dispatched consignmentUsageUpdated event for office user:', officeUserId);
+          }
         }
       } catch (usageErr) {
         console.warn('Failed to record consignment usage:', usageErr);

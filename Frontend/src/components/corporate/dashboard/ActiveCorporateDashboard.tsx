@@ -423,7 +423,7 @@ const ActiveCorporateDashboard: React.FC<ActiveCorporateDashboardProps> = ({
               className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
             >
               <Truck className="h-4 w-4 mr-2" />
-              Request a Courier
+              Request For Pickup
             </Button>
             <div className="text-xs text-gray-500 text-center">
               Need a courier boy for pickup? Click to request one.

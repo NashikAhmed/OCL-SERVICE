@@ -199,9 +199,7 @@ const employeeSchema = new mongoose.Schema({
 });
 
 // Indexes for better query performance
-employeeSchema.index({ employeeCode: 1 });
-employeeSchema.index({ uniqueId: 1 });
-employeeSchema.index({ email: 1 });
+// Note: employeeCode, uniqueId, and email indexes are automatically created due to unique: true
 employeeSchema.index({ phone: 1 });
 employeeSchema.index({ name: 1 });
 employeeSchema.index({ designation: 1 });
@@ -221,6 +219,116 @@ employeeSchema.methods.getFullAddress = function() {
     return `${this.permanentAddress.buildingFlatNo}, ${this.permanentAddress.locality}, ${this.permanentAddress.landmark ? this.permanentAddress.landmark + ', ' : ''}${this.permanentAddress.city}, ${this.permanentAddress.state} - ${this.permanentAddress.pincode}`;
   }
 };
+
+// Virtual for photo URL (handles both S3 and local paths)
+employeeSchema.virtual('photoUrl').get(function() {
+  if (!this.photoFilePath) return null;
+  
+  // If it's already an S3 URL, return as is
+  if (this.photoFilePath.startsWith('https://') && this.photoFilePath.includes('.s3.') && this.photoFilePath.includes('.amazonaws.com/')) {
+    return this.photoFilePath;
+  }
+  
+  // If it's a local path, return with API endpoint for serving
+  if (this.photoFilePath.startsWith('/uploads/')) {
+    const filename = this.photoFilePath.split('/').pop();
+    return `/api/upload/serve/${filename}`;
+  }
+  
+  return this.photoFilePath;
+});
+
+// Virtual for CV URL (handles both S3 and local paths)
+employeeSchema.virtual('cvUrl').get(function() {
+  if (!this.cvFilePath) return null;
+  
+  // If it's already an S3 URL, return as is
+  if (this.cvFilePath.startsWith('https://') && this.cvFilePath.includes('.s3.') && this.cvFilePath.includes('.amazonaws.com/')) {
+    return this.cvFilePath;
+  }
+  
+  // If it's a local path, return with API endpoint for serving
+  if (this.cvFilePath.startsWith('/uploads/')) {
+    const filename = this.cvFilePath.split('/').pop();
+    return `/api/upload/serve/${filename}`;
+  }
+  
+  return this.cvFilePath;
+});
+
+// Virtual for document URL (handles both S3 and local paths)
+employeeSchema.virtual('documentUrl').get(function() {
+  if (!this.documentFilePath) return null;
+  
+  // If it's already an S3 URL, return as is
+  if (this.documentFilePath.startsWith('https://') && this.documentFilePath.includes('.s3.') && this.documentFilePath.includes('.amazonaws.com/')) {
+    return this.documentFilePath;
+  }
+  
+  // If it's a local path, return with API endpoint for serving
+  if (this.documentFilePath.startsWith('/uploads/')) {
+    const filename = this.documentFilePath.split('/').pop();
+    return `/api/upload/serve/${filename}`;
+  }
+  
+  return this.documentFilePath;
+});
+
+// Virtual for PAN card URL (handles both S3 and local paths)
+employeeSchema.virtual('panCardUrl').get(function() {
+  if (!this.panCardFilePath) return null;
+  
+  // If it's already an S3 URL, return as is
+  if (this.panCardFilePath.startsWith('https://') && this.panCardFilePath.includes('.s3.') && this.panCardFilePath.includes('.amazonaws.com/')) {
+    return this.panCardFilePath;
+  }
+  
+  // If it's a local path, return with API endpoint for serving
+  if (this.panCardFilePath.startsWith('/uploads/')) {
+    const filename = this.panCardFilePath.split('/').pop();
+    return `/api/upload/serve/${filename}`;
+  }
+  
+  return this.panCardFilePath;
+});
+
+// Virtual for Aadhar card URL (handles both S3 and local paths)
+employeeSchema.virtual('aadharCardUrl').get(function() {
+  if (!this.aadharCardFilePath) return null;
+  
+  // If it's already an S3 URL, return as is
+  if (this.aadharCardFilePath.startsWith('https://') && this.aadharCardFilePath.includes('.s3.') && this.aadharCardFilePath.includes('.amazonaws.com/')) {
+    return this.aadharCardFilePath;
+  }
+  
+  // If it's a local path, return with API endpoint for serving
+  if (this.aadharCardFilePath.startsWith('/uploads/')) {
+    const filename = this.aadharCardFilePath.split('/').pop();
+    return `/api/upload/serve/${filename}`;
+  }
+  
+  return this.aadharCardFilePath;
+});
+
+// Virtual for other documents URLs (handles both S3 and local paths)
+employeeSchema.virtual('otherDocumentsUrls').get(function() {
+  if (!this.otherDocumentsPaths || !Array.isArray(this.otherDocumentsPaths)) return [];
+  
+  return this.otherDocumentsPaths.map(filePath => {
+    // If it's already an S3 URL, return as is
+    if (filePath.startsWith('https://') && filePath.includes('.s3.') && filePath.includes('.amazonaws.com/')) {
+      return filePath;
+    }
+    
+    // If it's a local path, return with API endpoint for serving
+    if (filePath.startsWith('/uploads/')) {
+      const filename = filePath.split('/').pop();
+      return `/api/upload/serve/${filename}`;
+    }
+    
+    return filePath;
+  });
+});
 
 // Static method to find employees by designation
 employeeSchema.statics.findByDesignation = function(designation) {

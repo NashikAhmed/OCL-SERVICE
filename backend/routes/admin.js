@@ -1706,6 +1706,85 @@ router.post('/clear-all-assignments', authenticateAdminOrOfficeAdmin, async (req
   }
 });
 
+// Complete assignment (mark as completed)
+router.post('/complete-assignment', authenticateAdminOrOfficeAdmin, async (req, res) => {
+  // Check if user has address forms permission
+  if (!req.admin.hasPermission('addressForms')) {
+    return res.status(403).json({ 
+      error: 'Access denied. Address forms management permission required.' 
+    });
+  }
+  
+  try {
+    const { orderId, completedAt } = req.body;
+    
+    // Validate required fields
+    if (!orderId) {
+      return res.status(400).json({ 
+        error: 'Order ID is required.'
+      });
+    }
+    
+    // Import FormData model
+    const FormData = (await import('../models/FormData.js')).default;
+    
+    // Check if order exists
+    const order = await FormData.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ 
+        error: 'Order not found.' 
+      });
+    }
+    
+    // Check if order has assignment data
+    if (!order.assignmentData || !order.assignmentData.assignedColoader) {
+      return res.status(400).json({ 
+        error: 'Order is not assigned to any coloader.' 
+      });
+    }
+    
+    // Update the order to mark as completed
+    const updateData = {
+      $set: {
+        'assignmentData.status': 'completed',
+        'assignmentData.completedAt': completedAt || new Date()
+      }
+    };
+    
+    const updatedOrder = await FormData.findByIdAndUpdate(
+      orderId,
+      updateData,
+      { new: true, runValidators: true }
+    );
+    
+    console.log(`✅ Order ${orderId} marked as completed by admin ${req.admin.name}`);
+    
+    res.json({
+      success: true,
+      message: 'Assignment completed successfully.',
+      data: {
+        orderId: updatedOrder._id,
+        status: updatedOrder.assignmentData.status,
+        completedAt: updatedOrder.assignmentData.completedAt
+      }
+    });
+    
+  } catch (error) {
+    console.error('Complete assignment error:', error);
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors).map(e => e.message);
+      res.status(400).json({ 
+        error: 'Validation failed',
+        details: validationErrors
+      });
+    } else if (error.name === 'CastError') {
+      res.status(400).json({ error: 'Invalid ID format.' });
+    } else {
+      res.status(500).json({ error: 'Failed to complete assignment.' });
+    }
+  }
+});
+
 // ==================== CORPORATE PRICING MANAGEMENT ROUTES ====================
 
 // Test route to verify the endpoint is working
@@ -2650,6 +2729,85 @@ router.get('/consignment/corporates', authenticateAdmin, async (req, res) => {
   }
 });
 
+// Get courier boys for consignment assignment (Admin)
+router.get('/consignment/courier-boys', authenticateAdmin, async (req, res) => {
+  // Check if admin has consignment management permission
+  if (!req.admin.hasPermission('consignmentManagement')) {
+    return res.status(403).json({ 
+      error: 'Access denied. Consignment management permission required.' 
+    });
+  }
+  try {
+    const CourierBoy = (await import('../models/CourierBoy.js')).default;
+    const { default: ConsignmentAssignment, ConsignmentUsage } = await import('../models/ConsignmentAssignment.js');
+    
+    // Fetch courier boys and their assignments in parallel
+    const [courierBoys, assignments] = await Promise.all([
+      CourierBoy.find({ status: 'approved' })
+        .select('_id fullName email phone area')
+        .sort({ fullName: 1 })
+        .lean(),
+      ConsignmentAssignment.find({ 
+        assignmentType: 'courier_boy',
+        isActive: true 
+      })
+        .populate('courierBoyId', 'fullName email phone area')
+        .lean()
+    ]);
+    
+    console.log(`[Admin] Found ${courierBoys.length} approved courier boys`);
+    console.log(`[Admin] Found ${assignments.length} courier boy assignments`);
+
+    // Map assignments to courier boys and calculate usage
+    const courierBoysWithAssignments = courierBoys.map(async (courier) => {
+      const courierAssignments = assignments.filter(assignment => {
+        // Handle both populated and unpopulated courierBoyId
+        const assignmentCourierId = assignment.courierBoyId?._id || assignment.courierBoyId;
+        return String(assignmentCourierId) === String(courier._id);
+      }).map(async (assignment) => {
+        // Calculate usage for this assignment
+        const usedCount = await ConsignmentUsage.countDocuments({
+          assignmentType: 'courier_boy',
+          entityId: courier._id,
+          consignmentNumber: { $gte: assignment.startNumber, $lte: assignment.endNumber }
+        });
+        
+        const totalNumbers = assignment.totalNumbers;
+        const usagePercentage = totalNumbers > 0 ? Math.round((usedCount / totalNumbers) * 100) : 0;
+        
+        return {
+          ...assignment,
+          usedCount,
+          availableCount: totalNumbers - usedCount,
+          usagePercentage
+        };
+      });
+
+      // Wait for all usage calculations to complete
+      const resolvedAssignments = await Promise.all(courierAssignments);
+
+      return {
+        ...courier,
+        consignmentAssignments: resolvedAssignments,
+        hasAssignments: resolvedAssignments.length > 0
+      };
+    });
+
+    // Wait for all courier boys to be processed
+    const finalCourierBoys = await Promise.all(courierBoysWithAssignments);
+
+    console.log(`[Admin] Returning ${finalCourierBoys.length} courier boys with assignments`);
+    
+    res.json({
+      success: true,
+      data: finalCourierBoys
+    });
+  } catch (error) {
+    console.error('Get courier boys (admin) error:', error);
+    res.status(500).json({ error: 'Failed to fetch courier boys.' });
+  }
+});
+
 // Assign consignment numbers to corporate
 router.post('/consignment/assign', authenticateAdmin, async (req, res) => {
   // Check if admin has consignment management permission
@@ -3237,85 +3395,65 @@ router.post('/consignment/use', authenticateAdmin, async (req, res) => {
 // Get courier requests for admin
 router.get('/courier-requests', authenticateAdmin, async (req, res) => {
   try {
+    const CourierRequest = (await import('../models/CourierRequest.js')).default;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
     const skip = (page - 1) * limit;
     const status = req.query.status;
     const urgency = req.query.urgency;
     
-    // Get courier requests from global storage (populated by corporate requests)
-    let allRequests = global.courierRequests || [];
-    
-    // Add some mock data if no real requests exist yet
-    if (allRequests.length === 0) {
-      allRequests = [
-        {
-          id: 'CR-1703123456789',
-          corporateId: 'CORP001',
-          corporateInfo: {
-            corporateId: 'CORP001',
-            companyName: 'Tech Solutions Pvt Ltd',
-            email: 'admin@techsolutions.com',
-            contactNumber: '+91 9876543210'
-          },
-          requestData: {
-            pickupAddress: '123 Business Park, Sector 5, Gurgaon, Haryana - 122001',
-            contactPerson: 'Rajesh Kumar',
-            contactPhone: '+91 9876543210',
-            urgency: 'urgent',
-            specialInstructions: 'Please call before arriving. Office is on 3rd floor.',
-            packageCount: 3
-          },
-          status: 'pending',
-          requestedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-          estimatedResponseTime: '10-15 minutes'
-        },
-        {
-          id: 'CR-1703123456790',
-          corporateId: 'CORP002',
-          corporateInfo: {
-            corporateId: 'CORP002',
-            companyName: 'Global Logistics Inc',
-            email: 'ops@globallogistics.com',
-            contactNumber: '+91 8765432109'
-          },
-          requestData: {
-            pickupAddress: '456 Industrial Area, Phase 2, Noida, UP - 201301',
-            contactPerson: 'Priya Sharma',
-            contactPhone: '+91 8765432109',
-            urgency: 'normal',
-            specialInstructions: 'Regular pickup, no special requirements',
-            packageCount: 1
-          },
-          status: 'assigned',
-          requestedAt: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-          estimatedResponseTime: '10-15 minutes',
-          assignedCourier: {
-            name: 'Amit Singh',
-            phone: '+91 7654321098',
-            id: 'COURIER001'
-          },
-          assignedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString()
-        }
-      ];
-    }
-    
-    // Apply filters to requests
-    let filteredRequests = allRequests;
+    // Build query
+    let query = {};
     if (status && status !== 'all') {
-      filteredRequests = filteredRequests.filter(req => req.status === status);
+      query.status = status;
     }
     if (urgency && urgency !== 'all') {
-      filteredRequests = filteredRequests.filter(req => req.requestData.urgency === urgency);
+      query['requestData.urgency'] = urgency;
     }
     
-    // Apply pagination
-    const totalCount = filteredRequests.length;
-    const paginatedRequests = filteredRequests.slice(skip, skip + limit);
+    // Fetch courier requests from database
+    const [requests, totalCount] = await Promise.all([
+      CourierRequest.find(query)
+        .populate('corporateId', 'corporateId companyName email contactNumber')
+        .populate('assignedCourier.courierBoyId', 'fullName email phone')
+        .sort({ requestedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      CourierRequest.countDocuments(query)
+    ]);
+    
+    // Format requests to match frontend interface
+    const formattedRequests = requests.map(request => ({
+      id: `CR-${request._id}`,
+      _id: request._id,
+      corporateId: request.corporateId?._id || request.corporateInfo?.corporateId,
+      corporateInfo: {
+        corporateId: request.corporateId?.corporateId || request.corporateInfo?.corporateId,
+        companyName: request.corporateId?.companyName || request.corporateInfo?.companyName,
+        email: request.corporateId?.email || request.corporateInfo?.email,
+        contactNumber: request.corporateId?.contactNumber || request.corporateInfo?.contactNumber
+      },
+      requestData: request.requestData,
+      status: request.status,
+      requestedAt: request.requestedAt || request.createdAt,
+      estimatedResponseTime: request.estimatedResponseTime,
+      assignedCourier: request.assignedCourier?.courierBoyId ? {
+        id: request.assignedCourier.courierBoyId._id,
+        name: request.assignedCourier.courierBoyId.fullName || request.assignedCourier.name,
+        phone: request.assignedCourier.courierBoyId.phone || request.assignedCourier.phone
+      } : request.assignedCourier ? {
+        id: request.assignedCourier.courierBoyId,
+        name: request.assignedCourier.name,
+        phone: request.assignedCourier.phone
+      } : undefined,
+      assignedAt: request.assignedAt,
+      completedAt: request.completedAt
+    }));
     
     res.json({
       success: true,
-      requests: paginatedRequests,
+      requests: formattedRequests,
       pagination: {
         currentPage: page,
         totalPages: Math.ceil(totalCount / limit),
@@ -3338,28 +3476,24 @@ router.get('/courier-requests', authenticateAdmin, async (req, res) => {
 // Update courier request status
 router.put('/courier-requests/:requestId/status', authenticateAdmin, async (req, res) => {
   try {
+    const CourierRequest = (await import('../models/CourierRequest.js')).default;
     const { requestId } = req.params;
-    const { status, assignedCourier } = req.body;
+    const { status } = req.body;
     
-    // Update courier request in global storage
-    if (global.courierRequests) {
-      const requestIndex = global.courierRequests.findIndex(req => req.id === requestId);
-      if (requestIndex !== -1) {
-        global.courierRequests[requestIndex].status = status;
-        if (assignedCourier) {
-          global.courierRequests[requestIndex].assignedCourier = assignedCourier;
-        }
-        if (status === 'assigned' || status === 'in_progress') {
-          global.courierRequests[requestIndex].assignedAt = new Date().toISOString();
-        }
-        if (status === 'completed') {
-          global.courierRequests[requestIndex].completedAt = new Date().toISOString();
-        }
-      }
+    // Extract MongoDB _id from requestId (format: CR-{_id})
+    const dbId = requestId.startsWith('CR-') ? requestId.substring(3) : requestId;
+    
+    const courierRequest = await CourierRequest.findById(dbId);
+    if (!courierRequest) {
+      return res.status(404).json({
+        success: false,
+        error: 'Courier request not found'
+      });
     }
     
+    await courierRequest.updateStatus(status);
+    
     console.log(`🚚 Admin updating courier request ${requestId} to status: ${status}`, {
-      assignedCourier,
       updatedBy: req.admin.username,
       timestamp: new Date().toISOString()
     });
@@ -3376,6 +3510,543 @@ router.put('/courier-requests/:requestId/status', authenticateAdmin, async (req,
     res.status(500).json({
       success: false,
       error: 'Failed to update courier request status'
+    });
+  }
+});
+
+// Assign courier boy to courier request
+router.put('/courier-requests/:requestId/assign', authenticateAdmin, async (req, res) => {
+  try {
+    const CourierRequest = (await import('../models/CourierRequest.js')).default;
+    const CourierBoy = (await import('../models/CourierBoy.js')).default;
+    const { requestId } = req.params;
+    const { courierBoyId } = req.body;
+    
+    if (!courierBoyId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Courier boy ID is required'
+      });
+    }
+    
+    // Extract MongoDB _id from requestId (format: CR-{_id})
+    const dbId = requestId.startsWith('CR-') ? requestId.substring(3) : requestId;
+    
+    // Find courier request
+    const courierRequest = await CourierRequest.findById(dbId);
+    if (!courierRequest) {
+      return res.status(404).json({
+        success: false,
+        error: 'Courier request not found'
+      });
+    }
+    
+    // Find courier boy
+    const courierBoy = await CourierBoy.findById(courierBoyId);
+    if (!courierBoy) {
+      return res.status(404).json({
+        success: false,
+        error: 'Courier boy not found'
+      });
+    }
+    
+    // Check if courier boy is approved
+    if (courierBoy.status !== 'approved') {
+      return res.status(400).json({
+        success: false,
+        error: 'Only approved courier boys can be assigned'
+      });
+    }
+    
+    // Assign courier boy
+    await courierRequest.assignCourier(courierBoy);
+    
+    console.log(`🚚 Admin assigned courier boy to request ${requestId}`, {
+      courierBoyId: courierBoy._id,
+      courierBoyName: courierBoy.fullName,
+      updatedBy: req.admin.username,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json({
+      success: true,
+      message: 'Courier boy assigned successfully',
+      requestId,
+      assignedCourier: {
+        id: courierBoy._id,
+        name: courierBoy.fullName,
+        phone: courierBoy.phone
+      }
+    });
+    
+  } catch (error) {
+    console.error('Assign courier boy error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to assign courier boy'
+    });
+  }
+});
+
+// ==================== SHIPMENT COURIER ASSIGNMENT ROUTES ====================
+
+// Get all corporate shipments grouped by corporate (for courier assignment)
+router.get('/shipments/grouped-by-corporate', authenticateAdmin, async (req, res) => {
+  try {
+    const { ConsignmentUsage } = await import('../models/ConsignmentAssignment.js');
+    const CorporateData = (await import('../models/CorporateData.js')).default;
+    const CourierBoy = (await import('../models/CourierBoy.js')).default;
+    
+    // Get all corporate shipments - query by corporateId (required for corporate bookings)
+    // Also include shipments with assignmentType: 'corporate' to catch any edge cases
+    const query = {
+      $or: [
+        { corporateId: { $exists: true, $ne: null } },
+        { 
+          assignmentType: 'corporate',
+          entityId: { $exists: true, $ne: null }
+        }
+      ]
+    };
+    
+    const shipments = await ConsignmentUsage.find(query)
+    .populate('corporateId', 'corporateId companyName email contactNumber')
+    .populate('assignedCourierBoyId', 'fullName email phone')
+    .sort({ usedAt: -1 })
+    .lean();
+    
+    console.log(`📦 Found ${shipments.length} total corporate shipments in database`);
+    
+    // Group shipments by corporate
+    const groupedShipments = {};
+    
+    // Fetch corporate data for shipments that only have entityId
+    const entityIdsToFetch = shipments
+      .filter(s => !s.corporateId && s.assignmentType === 'corporate' && s.entityId)
+      .map(s => s.entityId.toString());
+    
+    const corporateDataMap = {};
+    if (entityIdsToFetch.length > 0) {
+      const corporates = await CorporateData.find({ _id: { $in: entityIdsToFetch } })
+        .select('corporateId companyName email contactNumber')
+        .lean();
+      corporates.forEach(corp => {
+        corporateDataMap[corp._id.toString()] = corp;
+      });
+    }
+    
+    shipments.forEach(shipment => {
+      // Get corporateId - prioritize populated corporateId field
+      let corporateId = shipment.corporateId?._id?.toString() || shipment.corporateId?.toString();
+      let corporateInfo = shipment.corporateId;
+      
+      // If corporateId is not populated but entityId exists and assignmentType is corporate, use entityId
+      if (!corporateId && shipment.assignmentType === 'corporate' && shipment.entityId) {
+        const entityIdStr = shipment.entityId.toString();
+        corporateId = entityIdStr;
+        corporateInfo = corporateDataMap[entityIdStr] || null;
+      }
+      
+      if (!corporateId) {
+        console.log('⚠️ Skipping shipment without corporateId:', shipment._id, {
+          hasCorporateId: !!shipment.corporateId,
+          hasEntityId: !!shipment.entityId,
+          assignmentType: shipment.assignmentType
+        });
+        return; // Skip if no corporate ID
+      }
+      
+      if (!groupedShipments[corporateId]) {
+        groupedShipments[corporateId] = {
+          corporate: {
+            _id: corporateInfo?._id || corporateId,
+            corporateId: corporateInfo?.corporateId || 'N/A',
+            companyName: corporateInfo?.companyName || 'Unknown Company',
+            email: corporateInfo?.email || '',
+            contactNumber: corporateInfo?.contactNumber || ''
+          },
+          shipments: []
+        };
+      }
+      
+      // Transform shipment data to match frontend structure
+      const bookingData = shipment.bookingData || {};
+      groupedShipments[corporateId].shipments.push({
+        _id: shipment._id,
+        bookingReference: shipment.bookingReference,
+        consignmentNumber: shipment.consignmentNumber,
+        originData: bookingData.originData || {},
+        destinationData: bookingData.destinationData || {},
+        shipmentData: bookingData.shipmentData || {},
+        invoiceData: bookingData.invoiceData || {},
+        status: 'booked', // Default status
+        paymentStatus: shipment.paymentStatus || 'unpaid',
+        paymentType: shipment.paymentType || 'FP',
+        bookingDate: shipment.usedAt,
+        assignedCourierBoy: shipment.assignedCourierBoyId ? {
+          _id: shipment.assignedCourierBoyId._id,
+          fullName: shipment.assignedCourierBoyId.fullName,
+          email: shipment.assignedCourierBoyId.email,
+          phone: shipment.assignedCourierBoyId.phone
+        } : null,
+        assignedCourierBoyAt: shipment.assignedCourierBoyAt || null
+      });
+    });
+    
+    // Convert to array and sort by company name
+    const result = Object.values(groupedShipments).sort((a, b) => 
+      a.corporate.companyName.localeCompare(b.corporate.companyName)
+    );
+    
+    console.log(`📊 Grouped into ${result.length} corporate groups`);
+    console.log(`📈 Total shipments: ${shipments.length}`);
+    
+    res.json({
+      success: true,
+      data: result,
+      totalShipments: shipments.length,
+      totalCorporates: result.length
+    });
+    
+  } catch (error) {
+    console.error('Get shipments grouped by corporate error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch shipments',
+      details: error.message
+    });
+  }
+});
+
+// Assign courier boy to shipment
+router.put('/shipments/:shipmentId/assign-courier', authenticateAdmin, async (req, res) => {
+  try {
+    const { shipmentId } = req.params;
+    const { courierBoyId } = req.body;
+    
+    if (!courierBoyId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Courier boy ID is required'
+      });
+    }
+    
+    const { ConsignmentUsage } = await import('../models/ConsignmentAssignment.js');
+    const CourierBoy = (await import('../models/CourierBoy.js')).default;
+    
+    // Find shipment
+    const shipment = await ConsignmentUsage.findById(shipmentId);
+    if (!shipment) {
+      return res.status(404).json({
+        success: false,
+        error: 'Shipment not found'
+      });
+    }
+    
+    // Find courier boy
+    const courierBoy = await CourierBoy.findById(courierBoyId);
+    if (!courierBoy) {
+      return res.status(404).json({
+        success: false,
+        error: 'Courier boy not found'
+      });
+    }
+    
+    // Check if courier boy is approved
+    if (courierBoy.status !== 'approved') {
+      return res.status(400).json({
+        success: false,
+        error: 'Only approved courier boys can be assigned'
+      });
+    }
+    
+    // Ensure entityId is set (required by model) - use corporateId if entityId is missing
+    if (!shipment.entityId && shipment.corporateId) {
+      shipment.entityId = shipment.corporateId;
+    } else if (!shipment.entityId) {
+      // If no corporateId either, we can't assign - this shouldn't happen for corporate shipments
+      return res.status(400).json({
+        success: false,
+        error: 'Shipment is missing required corporate information'
+      });
+    }
+    
+    // Ensure assignmentType is set (required by model)
+    if (!shipment.assignmentType && shipment.corporateId) {
+      shipment.assignmentType = 'corporate';
+    }
+    
+    // Get corporate data for AssignedCourier record
+    const CorporateData = (await import('../models/CorporateData.js')).default;
+    const corporate = await CorporateData.findById(shipment.corporateId).lean();
+    
+    if (!corporate) {
+      return res.status(404).json({
+        success: false,
+        error: 'Corporate account not found'
+      });
+    }
+    
+    // Prepare order data for AssignedCourier
+    const bookingData = shipment.bookingData || {};
+    const orderData = {
+      shipmentId: shipment._id,
+      consignmentNumber: shipment.consignmentNumber,
+      bookingReference: shipment.bookingReference,
+      originData: bookingData.originData || {},
+      destinationData: bookingData.destinationData || {},
+      shipmentData: bookingData.shipmentData || {},
+      invoiceData: bookingData.invoiceData || {}
+    };
+    
+    // Create or update AssignedCourier record
+    const AssignedCourier = (await import('../models/AssignedCourier.js')).default;
+    
+    // Check if there's an existing AssignedCourier record for this corporate and courier
+    // Use findOneAndUpdate with upsert to handle race conditions better
+    let assignedCourierRecord = await AssignedCourier.findOneAndUpdate(
+      {
+        corporateId: shipment.corporateId,
+        'assignedCourier.courierBoyId': courierBoy._id,
+        status: { $in: ['pending', 'assigned', 'in_progress'] },
+        work: 'pickup',
+        type: 'corporate'
+      },
+      {
+        $setOnInsert: {
+          corporateId: shipment.corporateId,
+          corporateInfo: {
+            corporateId: corporate.corporateId || 'N/A',
+            companyName: corporate.companyName || 'Unknown Company',
+            email: corporate.email || '',
+            contactNumber: corporate.contactNumber || ''
+          },
+          type: 'corporate',
+          work: 'pickup',
+          status: 'assigned',
+          assignedCourier: {
+            courierBoyId: courierBoy._id,
+            name: courierBoy.fullName,
+            phone: courierBoy.phone,
+            email: courierBoy.email || '',
+            area: courierBoy.area || ''
+          },
+          assignedBy: req.admin._id,
+          assignedAt: new Date()
+        },
+        $addToSet: {
+          orders: orderData
+        }
+      },
+      {
+        upsert: true,
+        new: true,
+        setDefaultsOnInsert: true
+      }
+    );
+    
+    // Refresh the record to get updated data
+    assignedCourierRecord = await AssignedCourier.findById(assignedCourierRecord._id);
+    
+    // Check if order was added, if not add it manually (in case $addToSet didn't work with complex object)
+    const orderExists = assignedCourierRecord.orders.some(
+      o => o.shipmentId && o.shipmentId.toString() === shipment._id.toString()
+    );
+    
+    if (!orderExists) {
+      assignedCourierRecord.orders.push(orderData);
+      await assignedCourierRecord.save();
+    }
+    
+    // Assign courier boy to shipment (keep existing functionality)
+    shipment.assignedCourierBoyId = courierBoy._id;
+    shipment.assignedCourierBoyAt = new Date();
+    
+    try {
+      await shipment.save();
+    } catch (saveError) {
+      console.error('Error saving shipment after courier assignment:', saveError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to save courier assignment',
+        details: saveError.message
+      });
+    }
+    
+    console.log(`🚚 Admin assigned courier boy to shipment ${shipmentId}`, {
+      shipmentId: shipment._id,
+      consignmentNumber: shipment.consignmentNumber,
+      courierBoyId: courierBoy._id,
+      courierBoyName: courierBoy.fullName,
+      corporateId: shipment.corporateId,
+      assignedCourierRecordId: assignedCourierRecord._id,
+      updatedBy: req.admin.username,
+      timestamp: new Date().toISOString()
+    });
+    
+    res.json({
+      success: true,
+      message: 'Courier boy assigned successfully',
+      shipment: {
+        _id: shipment._id,
+        consignmentNumber: shipment.consignmentNumber,
+        bookingReference: shipment.bookingReference
+      },
+      assignedCourier: {
+        id: courierBoy._id,
+        name: courierBoy.fullName,
+        phone: courierBoy.phone,
+        email: courierBoy.email
+      },
+      assignedCourierRecord: {
+        _id: assignedCourierRecord._id,
+        ordersCount: assignedCourierRecord.orders.length,
+        type: assignedCourierRecord.type,
+        work: assignedCourierRecord.work
+      }
+    });
+    
+  } catch (error) {
+    console.error('Assign courier boy to shipment error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to assign courier boy'
+    });
+  }
+});
+
+// ==================== ASSIGNED COURIER ROUTES ====================
+
+// Get all assigned courier records
+router.get('/assigned-couriers', authenticateAdmin, async (req, res) => {
+  try {
+    const AssignedCourier = (await import('../models/AssignedCourier.js')).default;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
+    const status = req.query.status;
+    const type = req.query.type;
+    const work = req.query.work;
+    const courierBoyId = req.query.courierBoyId;
+    const corporateId = req.query.corporateId;
+    
+    // Build query
+    let query = {};
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+    if (type && type !== 'all') {
+      query.type = type;
+    }
+    if (work && work !== 'all') {
+      query.work = work;
+    }
+    if (courierBoyId) {
+      query['assignedCourier.courierBoyId'] = courierBoyId;
+    }
+    if (corporateId) {
+      query.corporateId = corporateId;
+    }
+    
+    const [assignedCouriers, totalCount] = await Promise.all([
+      AssignedCourier.find(query)
+        .populate('corporateId', 'corporateId companyName email contactNumber')
+        .populate('assignedCourier.courierBoyId', 'fullName email phone area')
+        .populate('assignedBy', 'username email')
+        .sort({ assignedAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      AssignedCourier.countDocuments(query)
+    ]);
+    
+    res.json({
+      success: true,
+      data: assignedCouriers,
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        pages: Math.ceil(totalCount / limit),
+        hasNext: page < Math.ceil(totalCount / limit),
+        hasPrev: page > 1
+      }
+    });
+    
+  } catch (error) {
+    console.error('Get assigned couriers error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch assigned courier records'
+    });
+  }
+});
+
+// Get assigned courier by ID
+router.get('/assigned-couriers/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const AssignedCourier = (await import('../models/AssignedCourier.js')).default;
+    const assignedCourier = await AssignedCourier.findById(req.params.id)
+      .populate('corporateId', 'corporateId companyName email contactNumber')
+      .populate('assignedCourier.courierBoyId', 'fullName email phone area')
+      .populate('assignedBy', 'username email')
+      .lean();
+    
+    if (!assignedCourier) {
+      return res.status(404).json({
+        success: false,
+        error: 'Assigned courier record not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: assignedCourier
+    });
+    
+  } catch (error) {
+    console.error('Get assigned courier by ID error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch assigned courier record'
+    });
+  }
+});
+
+// Update assigned courier status
+router.put('/assigned-couriers/:id/status', authenticateAdmin, async (req, res) => {
+  try {
+    const { status } = req.body;
+    const AssignedCourier = (await import('../models/AssignedCourier.js')).default;
+    
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        error: 'Status is required'
+      });
+    }
+    
+    const assignedCourier = await AssignedCourier.findById(req.params.id);
+    if (!assignedCourier) {
+      return res.status(404).json({
+        success: false,
+        error: 'Assigned courier record not found'
+      });
+    }
+    
+    await assignedCourier.updateStatus(status);
+    
+    res.json({
+      success: true,
+      message: 'Status updated successfully',
+      data: assignedCourier
+    });
+    
+  } catch (error) {
+    console.error('Update assigned courier status error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update status'
     });
   }
 });
@@ -3658,6 +4329,422 @@ router.post('/consignment/assign-office-user', authenticateAdmin, async (req, re
   }
 });
 
+// Assign consignment numbers to courier boy (admin)
+router.post('/consignment/assign-courier-boy', authenticateAdmin, async (req, res) => {
+  // Check if admin has consignment management permission
+  if (!req.admin.hasPermission('consignmentManagement')) {
+    return res.status(403).json({ 
+      error: 'Access denied. Consignment management permission required.' 
+    });
+  }
+  try {
+    const { courierBoyId, startNumber, endNumber, notes } = req.body;
+
+    // Validate required fields
+    if (!courierBoyId || !startNumber || !endNumber) {
+      return res.status(400).json({ 
+        error: 'Courier Boy ID, start number, and end number are required.' 
+      });
+    }
+
+    // Validate range
+    try {
+      ConsignmentAssignment.validateRange(parseInt(startNumber), parseInt(endNumber));
+    } catch (validationError) {
+      return res.status(400).json({ 
+        error: validationError.message 
+      });
+    }
+
+    // Check if courier boy exists
+    const CourierBoy = (await import('../models/CourierBoy.js')).default;
+    const courierBoy = await CourierBoy.findById(courierBoyId);
+
+    if (!courierBoy) {
+      return res.status(404).json({ 
+        error: 'Courier boy not found.' 
+      });
+    }
+
+    // Check if range is available
+    const isAvailable = await ConsignmentAssignment.isRangeAvailable(
+      parseInt(startNumber), 
+      parseInt(endNumber)
+    );
+
+    if (!isAvailable) {
+      return res.status(409).json({ 
+        error: 'The specified number range is already assigned to another entity.' 
+      });
+    }
+
+    // Create assignment
+    const assignment = new ConsignmentAssignment({
+      assignmentType: 'courier_boy',
+      courierBoyId: courierBoyId,
+      assignedToName: courierBoy.fullName,
+      assignedToEmail: courierBoy.email,
+      startNumber: parseInt(startNumber),
+      endNumber: parseInt(endNumber),
+      totalNumbers: parseInt(endNumber) - parseInt(startNumber) + 1,
+      assignedBy: req.admin._id,
+      notes: notes || ''
+    });
+
+    await assignment.save();
+
+    res.json({
+      success: true,
+      message: `Successfully assigned consignment numbers ${startNumber}-${endNumber} to ${courierBoy.fullName}`,
+      data: assignment
+    });
+  } catch (error) {
+    console.error('Assign consignment numbers to courier boy error (admin):', error);
+    res.status(500).json({ 
+      error: 'Failed to assign consignment numbers to courier boy.' 
+    });
+  }
+});
+
+// Assign consignment numbers to medicine user (admin)
+router.post('/consignment/assign-medicine-user', authenticateAdmin, async (req, res) => {
+  // Check if admin has consignment management permission
+  if (!req.admin.hasPermission('consignmentManagement')) {
+    return res.status(403).json({ 
+      error: 'Access denied. Consignment management permission required.' 
+    });
+  }
+  try {
+    const { medicineUserId, startNumber, endNumber, notes } = req.body;
+
+    // Validate required fields
+    if (!medicineUserId || !startNumber || !endNumber) {
+      return res.status(400).json({ 
+        error: 'Medicine User ID, start number, and end number are required.' 
+      });
+    }
+
+    // Validate range
+    try {
+      ConsignmentAssignment.validateRange(parseInt(startNumber), parseInt(endNumber));
+    } catch (validationError) {
+      return res.status(400).json({ 
+        error: validationError.message 
+      });
+    }
+
+    // Check if medicine user exists
+    const MedicineUser = (await import('../models/MedicineUser.js')).default;
+    const medicineUser = await MedicineUser.findById(medicineUserId);
+
+    if (!medicineUser) {
+      return res.status(404).json({ 
+        error: 'Medicine user not found.' 
+      });
+    }
+
+    // Check if range is available
+    const isAvailable = await ConsignmentAssignment.isRangeAvailable(
+      parseInt(startNumber), 
+      parseInt(endNumber)
+    );
+
+    if (!isAvailable) {
+      return res.status(409).json({ 
+        error: 'The specified number range is already assigned to another entity.' 
+      });
+    }
+
+    // Create assignment
+    const assignment = new ConsignmentAssignment({
+      assignmentType: 'medicine',
+      medicineUserId: medicineUserId,
+      assignedToName: medicineUser.name,
+      assignedToEmail: medicineUser.email,
+      startNumber: parseInt(startNumber),
+      endNumber: parseInt(endNumber),
+      totalNumbers: parseInt(endNumber) - parseInt(startNumber) + 1,
+      assignedBy: req.admin._id,
+      notes: notes || ''
+    });
+
+    await assignment.save();
+
+    res.json({
+      success: true,
+      message: `Successfully assigned consignment numbers ${startNumber}-${endNumber} to ${medicineUser.name}`,
+      data: assignment
+    });
+  } catch (error) {
+    console.error('Assign consignment numbers to medicine user error (admin):', error);
+    res.status(500).json({ 
+      error: 'Failed to assign consignment numbers to medicine user.' 
+    });
+  }
+});
+
+// Get consignment usage for a specific medicine user (admin)
+router.get('/consignment/usage/medicine-user/:medicineUserId', authenticateAdmin, async (req, res) => {
+  // Check if admin has consignment management permission
+  if (!req.admin.hasPermission('consignmentManagement')) {
+    return res.status(403).json({ 
+      error: 'Access denied. Consignment management permission required.' 
+    });
+  }
+  try {
+    const { medicineUserId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const { default: ConsignmentAssignment, ConsignmentUsage } = await import('../models/ConsignmentAssignment.js');
+    const MedicineUser = (await import('../models/MedicineUser.js')).default;
+
+    // Get an active assignment for this medicine user (latest)
+    const assignment = await ConsignmentAssignment.findOne({
+      assignmentType: 'medicine',
+      medicineUserId: medicineUserId,
+      isActive: true
+    })
+    .sort({ assignedAt: -1 })
+    .populate('medicineUserId', 'name email');
+
+    if (!assignment) {
+      const user = await MedicineUser.findById(medicineUserId).select('name email');
+      if (!user) {
+        return res.status(404).json({ error: 'Medicine user not found.' });
+      }
+
+      const allAssignments = await ConsignmentAssignment.find({
+        assignmentType: 'medicine',
+        medicineUserId: medicineUserId,
+        isActive: true
+      }).lean();
+
+      const totalAssigned = allAssignments.reduce((sum, a) => sum + a.totalNumbers, 0);
+      const totalUsed = await ConsignmentUsage.countDocuments({ assignmentType: 'medicine', entityId: medicineUserId });
+
+      return res.json({
+        success: true,
+        data: {
+          assignment: {
+            assignmentType: 'medicine',
+            assignedToName: user.name,
+            assignedToEmail: user.email,
+            medicineUser: user,
+            startNumber: allAssignments.length ? Math.min(...allAssignments.map(a => a.startNumber)) : 0,
+            endNumber: allAssignments.length ? Math.max(...allAssignments.map(a => a.endNumber)) : 0,
+            totalNumbers: totalAssigned
+          },
+          usage: [],
+          statistics: {
+            totalAssigned,
+            totalUsed,
+            available: totalAssigned - totalUsed,
+            usagePercentage: totalAssigned > 0 ? Math.round((totalUsed / totalAssigned) * 100) : 0
+          },
+          pagination: {
+            currentPage: page,
+            totalPages: 0,
+            totalUsage: 0,
+            hasNextPage: false,
+            hasPrevPage: false
+          }
+        }
+      });
+    }
+
+    // Get usage within this assignment range
+    const usage = await ConsignmentUsage.find({
+      assignmentType: 'medicine',
+      entityId: medicineUserId,
+      consignmentNumber: { $gte: assignment.startNumber, $lte: assignment.endNumber }
+    })
+      .sort({ usedAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const totalUsage = await ConsignmentUsage.countDocuments({
+      assignmentType: 'medicine',
+      entityId: medicineUserId,
+      consignmentNumber: { $gte: assignment.startNumber, $lte: assignment.endNumber }
+    });
+
+    const fullUsed = await ConsignmentUsage.countDocuments({
+      assignmentType: 'medicine',
+      entityId: medicineUserId,
+      consignmentNumber: { $gte: assignment.startNumber, $lte: assignment.endNumber }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        assignment: {
+          _id: assignment._id,
+          assignmentType: 'medicine',
+          assignedToName: assignment.assignedToName,
+          assignedToEmail: assignment.assignedToEmail,
+          startNumber: assignment.startNumber,
+          endNumber: assignment.endNumber,
+          totalNumbers: assignment.totalNumbers,
+          assignedAt: assignment.assignedAt,
+          notes: assignment.notes,
+          medicineUser: assignment.medicineUserId
+        },
+        usage,
+        statistics: {
+          totalAssigned: assignment.totalNumbers,
+          totalUsed: fullUsed,
+          available: assignment.totalNumbers - fullUsed,
+          usagePercentage: assignment.totalNumbers > 0 ? Math.round((fullUsed / assignment.totalNumbers) * 100) : 0
+        },
+        pagination: {
+          currentPage: page,
+          totalPages: Math.ceil(totalUsage / limit),
+          totalUsage,
+          hasNextPage: page < Math.ceil(totalUsage / limit),
+          hasPrevPage: page > 1
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Admin get medicine user consignment usage error:', error);
+    res.status(500).json({ error: 'Failed to get medicine user consignment usage.' });
+  }
+});
+
+// Get consignment usage for a specific courier boy (admin)
+router.get('/consignment/usage/courier-boy/:courierBoyId', authenticateAdmin, async (req, res) => {
+  // Check if admin has consignment management permission
+  if (!req.admin.hasPermission('consignmentManagement')) {
+    return res.status(403).json({ 
+      error: 'Access denied. Consignment management permission required.' 
+    });
+  }
+  try {
+    const { courierBoyId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const { default: ConsignmentAssignment, ConsignmentUsage } = await import('../models/ConsignmentAssignment.js');
+    const CourierBoy = (await import('../models/CourierBoy.js')).default;
+
+    // Get an active assignment for this courier boy (latest)
+    const assignment = await ConsignmentAssignment.findOne({
+      assignmentType: 'courier_boy',
+      courierBoyId: courierBoyId,
+      isActive: true
+    })
+    .sort({ assignedAt: -1 })
+    .populate('courierBoyId', 'fullName email phone area');
+
+    if (!assignment) {
+      const courier = await CourierBoy.findById(courierBoyId).select('fullName email phone area');
+      if (!courier) {
+        return res.status(404).json({ error: 'Courier boy not found.' });
+      }
+
+      const allAssignments = await ConsignmentAssignment.find({
+        assignmentType: 'courier_boy',
+        courierBoyId: courierBoyId,
+        isActive: true
+      }).lean();
+
+      const totalAssigned = allAssignments.reduce((sum, a) => sum + a.totalNumbers, 0);
+      const totalUsed = await ConsignmentUsage.countDocuments({ assignmentType: 'courier_boy', entityId: courierBoyId });
+
+      return res.json({
+        success: true,
+        data: {
+          assignment: {
+            assignmentType: 'courier_boy',
+            assignedToName: courier.fullName,
+            assignedToEmail: courier.email,
+            courierBoy: courier,
+            startNumber: allAssignments.length ? Math.min(...allAssignments.map(a => a.startNumber)) : 0,
+            endNumber: allAssignments.length ? Math.max(...allAssignments.map(a => a.endNumber)) : 0,
+            totalNumbers: totalAssigned
+          },
+          usage: [],
+          statistics: {
+            totalAssigned,
+            totalUsed,
+            available: totalAssigned - totalUsed,
+            usagePercentage: totalAssigned > 0 ? Math.round((totalUsed / totalAssigned) * 100) : 0
+          },
+          pagination: {
+            currentPage: page,
+            totalPages: 0,
+            totalUsage: 0,
+            hasNextPage: false,
+            hasPrevPage: false
+          }
+        }
+      });
+    }
+
+    // Get usage within this assignment range
+    const usage = await ConsignmentUsage.find({
+      assignmentType: 'courier_boy',
+      entityId: courierBoyId,
+      consignmentNumber: { $gte: assignment.startNumber, $lte: assignment.endNumber }
+    })
+      .sort({ usedAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const totalUsage = await ConsignmentUsage.countDocuments({
+      assignmentType: 'courier_boy',
+      entityId: courierBoyId,
+      consignmentNumber: { $gte: assignment.startNumber, $lte: assignment.endNumber }
+    });
+
+    const fullUsed = await ConsignmentUsage.countDocuments({
+      assignmentType: 'courier_boy',
+      entityId: courierBoyId,
+      consignmentNumber: { $gte: assignment.startNumber, $lte: assignment.endNumber }
+    });
+
+    res.json({
+      success: true,
+      data: {
+        assignment: {
+          _id: assignment._id,
+          assignmentType: 'courier_boy',
+          assignedToName: assignment.assignedToName,
+          assignedToEmail: assignment.assignedToEmail,
+          startNumber: assignment.startNumber,
+          endNumber: assignment.endNumber,
+          totalNumbers: assignment.totalNumbers,
+          assignedAt: assignment.assignedAt,
+          notes: assignment.notes,
+          courierBoy: assignment.courierBoyId
+        },
+        usage,
+        statistics: {
+          totalAssigned: assignment.totalNumbers,
+          totalUsed: fullUsed,
+          available: assignment.totalNumbers - fullUsed,
+          usagePercentage: assignment.totalNumbers > 0 ? Math.round((fullUsed / assignment.totalNumbers) * 100) : 0
+        },
+        pagination: {
+          currentPage: page,
+          totalPages: Math.ceil(totalUsage / limit),
+          totalUsage,
+          hasNextPage: page < Math.ceil(totalUsage / limit),
+          hasPrevPage: page > 1
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Admin get courier boy consignment usage error:', error);
+    res.status(500).json({ error: 'Failed to get courier boy consignment usage.' });
+  }
+});
+
 
 // Get office users for consignment assignment
 router.get('/consignment/office-users', authenticateAdmin, async (req, res) => {
@@ -3681,6 +4768,79 @@ router.get('/consignment/office-users', authenticateAdmin, async (req, res) => {
   } catch (error) {
     console.error('Get office users error:', error);
     res.status(500).json({ error: 'Failed to fetch office users.' });
+  }
+});
+
+// Get medicine users for consignment assignment
+router.get('/consignment/medicine-users', authenticateAdmin, async (req, res) => {
+  // Check if admin has consignment management permission
+  if (!req.admin.hasPermission('consignmentManagement')) {
+    return res.status(403).json({ 
+      error: 'Access denied. Consignment management permission required.' 
+    });
+  }
+  try {
+    const MedicineUser = (await import('../models/MedicineUser.js')).default;
+    const { default: ConsignmentAssignment, ConsignmentUsage } = await import('../models/ConsignmentAssignment.js');
+    
+    // Fetch medicine users and their assignments in parallel
+    const [medicineUsers, assignments] = await Promise.all([
+      MedicineUser.find({ isActive: true })
+        .select('_id name email')
+        .sort({ name: 1 })
+        .lean(),
+      ConsignmentAssignment.find({ 
+        assignmentType: 'medicine',
+        isActive: true 
+      })
+        .populate('medicineUserId', 'name email')
+        .lean()
+    ]);
+
+    // Map assignments to medicine users and calculate usage
+    const medicineUsersWithAssignments = medicineUsers.map(async (user) => {
+      const userAssignments = assignments.filter(assignment => 
+        assignment.medicineUserId && String(assignment.medicineUserId._id) === String(user._id)
+      ).map(async (assignment) => {
+        // Calculate usage for this assignment
+        const usedCount = await ConsignmentUsage.countDocuments({
+          assignmentType: 'medicine',
+          entityId: user._id,
+          consignmentNumber: { $gte: assignment.startNumber, $lte: assignment.endNumber }
+        });
+        
+        const totalNumbers = assignment.totalNumbers;
+        const usagePercentage = totalNumbers > 0 ? Math.round((usedCount / totalNumbers) * 100) : 0;
+        
+        return {
+          ...assignment,
+          usedCount,
+          availableCount: totalNumbers - usedCount,
+          usagePercentage
+        };
+      });
+
+      // Wait for all usage calculations to complete
+      const resolvedAssignments = await Promise.all(userAssignments);
+
+      return {
+        ...user,
+        consignmentAssignments: resolvedAssignments,
+        hasAssignments: resolvedAssignments.length > 0
+      };
+    });
+
+    // Wait for all medicine users to be processed
+    const finalMedicineUsers = await Promise.all(medicineUsersWithAssignments);
+
+    res.json({
+      success: true,
+      data: finalMedicineUsers
+    });
+    
+  } catch (error) {
+    console.error('Get medicine users error:', error);
+    res.status(500).json({ error: 'Failed to fetch medicine users.' });
   }
 });
 
@@ -3793,6 +4953,594 @@ router.post('/send-manifest', authenticateAdmin, async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('send-manifest error', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Generate and send quotation PDF
+router.post('/generate-quotation', authenticateAdmin, async (req, res) => {
+  try {
+    const {
+      customerName,
+      customerEmail,
+      customerPhone,
+      origin,
+      destination,
+      weight,
+      ratePerKg,
+      gstRate,
+      additionalCharges
+    } = req.body;
+
+    // Validation
+    if (!customerName || !customerEmail || !origin || !destination || !weight) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Missing required fields: customerName, customerEmail, origin, destination, weight' 
+      });
+    }
+
+    const emailService = (await import('../services/emailService.js')).default;
+
+    // Calculate amounts
+    const weightNum = parseFloat(weight);
+    const ratePerKgNum = parseFloat(ratePerKg) || 45;
+    const gstRateNum = parseFloat(gstRate) || 18;
+    
+    const baseAmount = weightNum * ratePerKgNum;
+    const additionalChargesTotal = (additionalCharges || []).reduce((sum, charge) => {
+      return sum + (parseFloat(charge.amount) || 0);
+    }, 0);
+    
+    const subtotal = baseAmount + additionalChargesTotal;
+    const gstAmount = (subtotal * gstRateNum) / 100;
+    const totalAmount = subtotal + gstAmount;
+
+    // Generate current date
+    const currentDate = new Date();
+    const formattedDate = currentDate.toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+
+    // Generate valid until date (7 days from now)
+    const validUntilDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
+    });
+
+    // Build HTML for quotation PDF - Modern Professional Design
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Quotation - ${customerName}</title>
+          <style>
+            @page {
+              margin: 0;
+              size: A4;
+            }
+            * {
+              box-sizing: border-box;
+            }
+            body {
+              margin: 0;
+              padding: 0;
+              font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              color: #333;
+              line-height: 1.6;
+            }
+            .page-container {
+              position: relative;
+              width: 100%;
+              min-height: 100vh;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              padding: 20px;
+            }
+            .document {
+              background: white;
+              border-radius: 20px;
+              box-shadow: 0 25px 50px rgba(0, 0, 0, 0.15);
+              overflow: hidden;
+              position: relative;
+            }
+            .header {
+              background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+              color: white;
+              padding: 30px 40px;
+              position: relative;
+              overflow: hidden;
+            }
+            .header::before {
+              content: '';
+              position: absolute;
+              top: -50%;
+              right: -50%;
+              width: 200%;
+              height: 200%;
+              background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+              animation: float 6s ease-in-out infinite;
+            }
+            @keyframes float {
+              0%, 100% { transform: translateY(0px) rotate(0deg); }
+              50% { transform: translateY(-20px) rotate(180deg); }
+            }
+            .header-content {
+              position: relative;
+              z-index: 2;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+            .logo-section {
+              display: flex;
+              align-items: center;
+              gap: 15px;
+            }
+            .logo {
+              width: 70px;
+              height: 70px;
+              background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+              border-radius: 20px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              font-weight: 900;
+              font-size: 24px;
+              color: white;
+              box-shadow: 0 10px 25px rgba(251, 191, 36, 0.3);
+            }
+            .company-info h1 {
+              font-size: 28px;
+              font-weight: 800;
+              margin: 0;
+              text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            }
+            .company-info p {
+              font-size: 14px;
+              margin: 5px 0 0 0;
+              opacity: 0.9;
+            }
+            .quotation-badge {
+              background: rgba(255, 255, 255, 0.2);
+              padding: 15px 25px;
+              border-radius: 50px;
+              text-align: center;
+              backdrop-filter: blur(10px);
+              border: 1px solid rgba(255, 255, 255, 0.3);
+            }
+            .quotation-badge h2 {
+              font-size: 20px;
+              font-weight: 700;
+              margin: 0;
+              letter-spacing: 1px;
+            }
+            .quotation-badge p {
+              font-size: 12px;
+              margin: 5px 0 0 0;
+              opacity: 0.8;
+            }
+            .content {
+              padding: 40px;
+            }
+            .section {
+              margin-bottom: 35px;
+            }
+            .section-title {
+              font-size: 20px;
+              font-weight: 700;
+              color: #1e3a8a;
+              margin-bottom: 20px;
+              padding-bottom: 10px;
+              border-bottom: 3px solid #3b82f6;
+              position: relative;
+            }
+            .section-title::after {
+              content: '';
+              position: absolute;
+              bottom: -3px;
+              left: 0;
+              width: 50px;
+              height: 3px;
+              background: linear-gradient(90deg, #fbbf24, #f59e0b);
+            }
+            .info-grid {
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+              gap: 20px;
+              margin-bottom: 20px;
+            }
+            .info-card {
+              background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+              padding: 20px;
+              border-radius: 15px;
+              border-left: 5px solid #3b82f6;
+              box-shadow: 0 5px 15px rgba(0, 0, 0, 0.05);
+            }
+            .info-label {
+              font-weight: 600;
+              color: #64748b;
+              font-size: 14px;
+              margin-bottom: 5px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .info-value {
+              color: #1e293b;
+              font-size: 16px;
+              font-weight: 500;
+            }
+            .pricing-section {
+              background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+              padding: 30px;
+              border-radius: 20px;
+              border: 2px solid #0ea5e9;
+              box-shadow: 0 10px 30px rgba(14, 165, 233, 0.1);
+            }
+            .pricing-title {
+              font-size: 24px;
+              font-weight: 800;
+              color: #0c4a6e;
+              margin-bottom: 25px;
+              text-align: center;
+            }
+            .pricing-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 20px;
+            }
+            .pricing-table th {
+              background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+              color: white;
+              padding: 15px;
+              text-align: left;
+              font-weight: 600;
+              font-size: 14px;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .pricing-table td {
+              padding: 15px;
+              border-bottom: 1px solid #e2e8f0;
+              font-size: 15px;
+            }
+            .pricing-table tr:nth-child(even) {
+              background: rgba(14, 165, 233, 0.05);
+            }
+            .pricing-table tr:hover {
+              background: rgba(14, 165, 233, 0.1);
+            }
+            .total-row {
+              background: linear-gradient(135deg, #059669 0%, #10b981 100%) !important;
+              color: white !important;
+              font-weight: 700 !important;
+              font-size: 18px !important;
+            }
+            .total-row td {
+              border: none !important;
+              padding: 20px 15px !important;
+            }
+            .terms-section {
+              background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+              padding: 25px;
+              border-radius: 15px;
+              border-left: 5px solid #f59e0b;
+            }
+            .terms-title {
+              font-size: 18px;
+              font-weight: 700;
+              color: #92400e;
+              margin-bottom: 15px;
+            }
+            .terms-list {
+              list-style: none;
+              padding: 0;
+            }
+            .terms-list li {
+              margin-bottom: 10px;
+              padding-left: 25px;
+              position: relative;
+              color: #92400e;
+              font-size: 14px;
+            }
+            .terms-list li::before {
+              content: '✓';
+              position: absolute;
+              left: 0;
+              color: #f59e0b;
+              font-weight: bold;
+              font-size: 16px;
+            }
+            .footer {
+              background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+              color: white;
+              padding: 30px 40px;
+              text-align: center;
+            }
+            .footer-content {
+              max-width: 800px;
+              margin: 0 auto;
+            }
+            .footer-title {
+              font-size: 24px;
+              font-weight: 800;
+              margin-bottom: 15px;
+              background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+              -webkit-background-clip: text;
+              -webkit-text-fill-color: transparent;
+              background-clip: text;
+            }
+            .footer-contact {
+              display: flex;
+              justify-content: center;
+              gap: 30px;
+              flex-wrap: wrap;
+              font-size: 14px;
+            }
+            .footer-contact span {
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              padding: 8px 15px;
+              background: rgba(255, 255, 255, 0.1);
+              border-radius: 25px;
+              backdrop-filter: blur(10px);
+            }
+            .approval-section {
+              background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+              padding: 25px;
+              border-radius: 15px;
+              border: 2px solid #22c55e;
+              text-align: center;
+              margin-top: 30px;
+            }
+            .approval-text {
+              color: #166534;
+              font-style: italic;
+              font-size: 16px;
+              margin: 0;
+            }
+            .highlight {
+              color: #f59e0b;
+              font-weight: 700;
+            }
+            .currency {
+              font-family: 'Courier New', monospace;
+              font-weight: 600;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="page-container">
+            <div class="document">
+              <div class="header">
+                <div class="header-content">
+                  <div class="logo-section">
+                    <div class="logo">OCL</div>
+                    <div class="company-info">
+                      <h1>Our Courier & Logistics</h1>
+                      <p>Reliable • Fast • Secure</p>
+                    </div>
+                  </div>
+                  <div class="quotation-badge">
+                    <h2>QUOTATION</h2>
+                    <p>Valid Until: ${validUntilDate}</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="content">
+                <div class="section">
+                  <div class="section-title">Customer Information</div>
+                  <div class="info-grid">
+                    <div class="info-card">
+                      <div class="info-label">Customer Name</div>
+                      <div class="info-value">${customerName}</div>
+                    </div>
+                    <div class="info-card">
+                      <div class="info-label">Email Address</div>
+                      <div class="info-value">${customerEmail}</div>
+                    </div>
+                    ${customerPhone ? `
+                    <div class="info-card">
+                      <div class="info-label">Phone Number</div>
+                      <div class="info-value">${customerPhone}</div>
+                    </div>
+                    ` : ''}
+                    <div class="info-card">
+                      <div class="info-label">Quotation Date</div>
+                      <div class="info-value">${formattedDate}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="section">
+                  <div class="section-title">Service Details</div>
+                  <div class="info-grid">
+                    <div class="info-card">
+                      <div class="info-label">Route</div>
+                      <div class="info-value">${origin} → ${destination}</div>
+                    </div>
+                    <div class="info-card">
+                      <div class="info-label">Weight</div>
+                      <div class="info-value">${weight} kg</div>
+                    </div>
+                    <div class="info-card">
+                      <div class="info-label">Rate per kg</div>
+                      <div class="info-value">₹${ratePerKgNum}</div>
+                    </div>
+                    <div class="info-card">
+                      <div class="info-label">Service Type</div>
+                      <div class="info-value">Express Delivery</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="pricing-section">
+                  <div class="pricing-title">Pricing Breakdown</div>
+                  <table class="pricing-table">
+                    <thead>
+                      <tr>
+                        <th>Description</th>
+                        <th>Quantity</th>
+                        <th>Rate</th>
+                        <th>Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>Base Shipping Cost</td>
+                        <td>${weight} kg</td>
+                        <td>₹${ratePerKgNum}/kg</td>
+                        <td class="currency">₹${baseAmount.toFixed(2)}</td>
+                      </tr>
+                      ${additionalCharges && additionalCharges.length > 0 ? additionalCharges.map(charge => `
+                      <tr>
+                        <td>${charge.description || 'Additional Charge'}</td>
+                        <td>1</td>
+                        <td>₹${parseFloat(charge.amount || 0).toFixed(2)}</td>
+                        <td class="currency">₹${parseFloat(charge.amount || 0).toFixed(2)}</td>
+                      </tr>
+                      `).join('') : ''}
+                      ${additionalCharges && additionalCharges.length > 0 ? `
+                      <tr style="background: rgba(59, 130, 246, 0.1);">
+                        <td colspan="3"><strong>Subtotal</strong></td>
+                        <td class="currency"><strong>₹${subtotal.toFixed(2)}</strong></td>
+                      </tr>
+                      ` : ''}
+                      <tr>
+                        <td>GST (${gstRateNum}%)</td>
+                        <td>-</td>
+                        <td>${gstRateNum}%</td>
+                        <td class="currency">₹${gstAmount.toFixed(2)}</td>
+                      </tr>
+                      <tr class="total-row">
+                        <td colspan="3"><strong>TOTAL AMOUNT</strong></td>
+                        <td class="currency"><strong>₹${totalAmount.toFixed(2)}</strong></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div class="terms-section">
+                  <div class="terms-title">Terms & Conditions</div>
+                  <ul class="terms-list">
+                    <li>This quotation is valid for 7 working days from the date of issue</li>
+                    <li>Payment terms: 50% advance payment required, balance on delivery</li>
+                    <li>Estimated delivery time: 3-5 working days for domestic shipments</li>
+                    <li>Insurance coverage up to ₹50,000 included in the quoted price</li>
+                    <li>Real-time tracking number will be provided after dispatch</li>
+                    <li>Any additional charges will be communicated and approved before dispatch</li>
+                    <li>All prices are inclusive of GST and applicable taxes</li>
+                    <li>Delivery confirmation required upon receipt of goods</li>
+                  </ul>
+                </div>
+
+                <div class="approval-section">
+                  <p class="approval-text">
+                    This quotation is subject to your approval and acceptance of the above terms and conditions.<br>
+                    Please sign and return this document to confirm your order.
+                  </p>
+                </div>
+              </div>
+
+              <div class="footer">
+                <div class="footer-content">
+                  <div class="footer-title">Our Courier & Logistics</div>
+                  <div class="footer-contact">
+                    <span>📧 info@oclcourier.com</span>
+                    <span>📞 +91 9876543210</span>
+                    <span>🌐 www.oclcourier.com</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+
+    // Generate PDF
+    let pdfBuffer;
+    try {
+      const puppeteer = (await import('puppeteer')).default;
+      const browser = await puppeteer.launch({ 
+        headless: true, 
+        args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+      });
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: 'networkidle0' });
+      pdfBuffer = await page.pdf({ 
+        format: 'A4', 
+        printBackground: true, 
+        margin: { top: '0mm', bottom: '0mm', left: '0mm', right: '0mm' } 
+      });
+      await browser.close();
+    } catch (puppeteerErr) {
+      console.warn('Puppeteer failed, falling back to html-pdf:', puppeteerErr?.message);
+      const pdfModule = await import('html-pdf');
+      const pdfCreate = pdfModule.default?.create || pdfModule.create;
+      pdfBuffer = await new Promise((resolve, reject) => {
+        try {
+          pdfCreate(html, { 
+            format: 'A4', 
+            border: { top: '0mm', right: '0mm', bottom: '0mm', left: '0mm' } 
+          }).toBuffer((err, buffer) => {
+            if (err) return reject(err);
+            resolve(buffer);
+          });
+        } catch (e) {
+          reject(e);
+        }
+      });
+    }
+
+    // Send email with PDF attachment
+    const subject = `Quotation for Courier Service - ${origin} to ${destination}`;
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #1e3a8a;">Quotation Request</h2>
+        <p>Dear ${customerName},</p>
+        <p>Thank you for your interest in our courier and logistics services. Please find attached the detailed quotation for your service from ${origin} to ${destination}.</p>
+        <p><strong>Service Details:</strong></p>
+        <ul>
+          <li>Route: ${origin} to ${destination}</li>
+          <li>Weight: ${weight} kg</li>
+          <li>Base Amount: ₹${baseAmount.toFixed(2)}</li>
+          ${additionalCharges && additionalCharges.length > 0 ? `
+          <li>Additional Charges: ₹${additionalChargesTotal.toFixed(2)}</li>
+          <li>Subtotal: ₹${subtotal.toFixed(2)}</li>
+          ` : ''}
+          <li>GST (${gstRateNum}%): ₹${gstAmount.toFixed(2)}</li>
+          <li><strong>Total Amount: ₹${totalAmount.toFixed(2)}</strong></li>
+        </ul>
+        <p>This quotation is valid until ${validUntilDate}. Please feel free to contact us if you have any questions or need any clarification.</p>
+        <p>We look forward to serving you.</p>
+        <p>Best regards,<br>Our Courier & Logistics Team</p>
+      </div>
+    `;
+    const text = `Quotation for courier service from ${origin} to ${destination}. Total amount: ₹${totalAmount.toFixed(2)}. Valid until ${validUntilDate}.`;
+
+    await emailService.sendEmailWithPdfAttachment({
+      to: customerEmail,
+      subject,
+      html: emailHtml,
+      text,
+      pdfBuffer,
+      filename: `quotation_${customerName.replace(/\s+/g, '_')}_${Date.now()}.pdf`
+    });
+
+    res.json({ 
+      success: true, 
+      message: 'Quotation PDF generated and sent successfully',
+      totalAmount: totalAmount.toFixed(2)
+    });
+  } catch (error) {
+    console.error('generate-quotation error', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

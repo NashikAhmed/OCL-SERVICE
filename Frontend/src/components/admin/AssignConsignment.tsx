@@ -33,9 +33,27 @@ interface OfficeUser {
 }
 
 
+interface CourierBoy {
+  _id: string;
+  fullName: string;
+  email: string;
+  phone?: string;
+  area?: string;
+  consignmentAssignments?: ConsignmentAssignment[];
+  hasAssignments?: boolean;
+}
+
+interface MedicineUser {
+  _id: string;
+  name: string;
+  email: string;
+  consignmentAssignments?: ConsignmentAssignment[];
+  hasAssignments?: boolean;
+}
+
 interface ConsignmentAssignment {
   _id: string;
-  assignmentType: 'corporate' | 'office_user';
+  assignmentType: 'corporate' | 'office_user' | 'courier_boy' | 'medicine';
   corporateId?: {
     _id: string;
     corporateId: string;
@@ -44,6 +62,8 @@ interface ConsignmentAssignment {
     contactNumber: string;
   };
   officeUserId?: string;
+  courierBoyId?: string;
+  medicineUserId?: string;
   assignedToName: string;
   assignedToEmail: string;
   companyName?: string;
@@ -75,18 +95,24 @@ interface ConsignmentUsage {
 const AssignConsignment = () => {
   const [corporates, setCorporates] = useState<Corporate[]>([]);
   const [officeUsers, setOfficeUsers] = useState<OfficeUser[]>([]);
+  const [courierBoys, setCourierBoys] = useState<CourierBoy[]>([]);
+  const [medicineUsers, setMedicineUsers] = useState<MedicineUser[]>([]);
   const [assignments, setAssignments] = useState<ConsignmentAssignment[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCorporate, setSelectedCorporate] = useState<Corporate | null>(null);
   const [selectedOfficeUser, setSelectedOfficeUser] = useState<OfficeUser | null>(null);
+  const [selectedCourierBoy, setSelectedCourierBoy] = useState<CourierBoy | null>(null);
+  const [selectedMedicineUser, setSelectedMedicineUser] = useState<MedicineUser | null>(null);
   const [showAssignDialog, setShowAssignDialog] = useState(false);
   const [showUsageDialog, setShowUsageDialog] = useState(false);
   const [usageData, setUsageData] = useState<any>(null);
   const [assignmentForm, setAssignmentForm] = useState({
     corporateId: '',
     officeUserId: '',
-    assignmentType: 'corporate' as 'corporate' | 'office_user',
+    courierBoyId: '',
+    medicineUserId: '',
+    assignmentType: 'corporate' as 'corporate' | 'office_user' | 'courier_boy' | 'medicine',
     startNumber: '',
     endNumber: '',
     notes: '',
@@ -205,6 +231,66 @@ const AssignConsignment = () => {
     }
   };
 
+  // Fetch courier boys
+  const fetchCourierBoys = async () => {
+    try {
+      const { token, basePath } = getTokenAndBase();
+      console.log('🔍 Fetching courier boys...');
+      console.log('Token present:', !!token);
+      console.log('Base path:', basePath);
+      
+      const response = await fetch(`${basePath}/consignment/courier-boys`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log('Courier boys response status:', response.status);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Courier boys data received:', data);
+        console.log('Courier boys count:', data.data?.length || 0);
+        setCourierBoys(data.data || []);
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('❌ Error fetching courier boys:', errorData);
+        toast({
+          title: "Error",
+          description: errorData.error || "Failed to fetch courier boys",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      console.error('❌ Network error fetching courier boys:', error);
+      toast({
+        title: "Error",
+        description: "Failed to fetch courier boys. Please check your connection.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Fetch medicine users
+  const fetchMedicineUsers = async () => {
+    try {
+      const { token, basePath } = getTokenAndBase();
+      const response = await fetch(`${basePath}/consignment/medicine-users`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setMedicineUsers(data.data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching medicine users:', error);
+    }
+  };
+
 
   // Fetch all data (corporates with their assignments and all assignments)
   const fetchData = async () => {
@@ -250,19 +336,22 @@ const AssignConsignment = () => {
     }
   };
 
-  // Fetch usage data for a corporate or office user
-  const fetchUsageData = async (id: string, type: 'corporate' | 'office_user' = 'corporate') => {
+  // Fetch usage data for a corporate, office user, courier boy, or medicine user
+  const fetchUsageData = async (id: string, type: 'corporate' | 'office_user' | 'courier_boy' | 'medicine' = 'corporate') => {
     try {
       setLoading(true);
       const { token, basePath } = getTokenAndBase();
       
-      // Try different endpoint approaches for office users
+      // Build endpoint per type
       let endpoint;
       if (type === 'office_user') {
-        // Try the office user specific endpoint first
         endpoint = `${basePath}/consignment/usage/office-user/${id}`;
+      } else if (type === 'courier_boy') {
+        endpoint = `${basePath}/consignment/usage/courier-boy/${id}`;
+      } else if (type === 'medicine') {
+        endpoint = `${basePath}/consignment/usage/medicine-user/${id}`;
       } else {
-        endpoint = `${basePath}/consignment/usage/${id}`;
+        endpoint = `${basePath}/consignment/usage/${id}`; // corporate
       }
       
       console.log('Fetching usage data from:', endpoint);
@@ -282,7 +371,7 @@ const AssignConsignment = () => {
         setUsageData(data.data);
         setShowUsageDialog(true);
       } else {
-        // If office user endpoint fails, try the general usage endpoint with assignment type
+        // If specific endpoint fails, try the general usage endpoint with assignment type
         if (type === 'office_user') {
           console.log('Office user endpoint failed, trying general endpoint with type parameter');
           const fallbackEndpoint = `${basePath}/consignment/usage/${id}?assignmentType=office_user`;
@@ -300,6 +389,8 @@ const AssignConsignment = () => {
             setShowUsageDialog(true);
             return;
           }
+        } else if (type === 'courier_boy') {
+          console.log('Courier boy endpoint failed, no fallback available');
         }
         
         const errorText = await response.text();
@@ -320,7 +411,7 @@ const AssignConsignment = () => {
 
   // Assign consignment numbers
   const handleAssign = async () => {
-    const { assignmentType, corporateId, officeUserId, startNumber, endNumber } = assignmentForm;
+    const { assignmentType, corporateId, officeUserId, courierBoyId, medicineUserId, startNumber, endNumber } = assignmentForm;
     
     // Validate based on assignment type
     if (assignmentType === 'corporate' && !corporateId) {
@@ -349,6 +440,23 @@ const AssignConsignment = () => {
       });
       return;
     }
+    if (assignmentType === 'courier_boy' && !courierBoyId) {
+      toast({
+        title: "Error",
+        description: "Please select a courier boy",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    if (assignmentType === 'medicine' && !medicineUserId) {
+      toast({
+        title: "Error",
+        description: "Please select a medicine user",
+        variant: "destructive",
+      });
+      return;
+    }
 
     try {
       setLoading(true);
@@ -356,11 +464,17 @@ const AssignConsignment = () => {
       
       // Determine the correct endpoint based on assignment type
       let endpoint = `${basePath}/consignment/assign`;
-      let body = assignmentForm;
+      let body: any = assignmentForm;
       
       if (assignmentType === 'office_user') {
         endpoint = `${basePath}/consignment/assign-office-user`;
         body = { officeUserId, startNumber, endNumber, notes: assignmentForm.notes };
+      } else if (assignmentType === 'courier_boy') {
+        endpoint = `${basePath}/consignment/assign-courier-boy`;
+        body = { courierBoyId, startNumber, endNumber, notes: assignmentForm.notes };
+      } else if (assignmentType === 'medicine') {
+        endpoint = `${basePath}/consignment/assign-medicine-user`;
+        body = { medicineUserId, startNumber, endNumber, notes: assignmentForm.notes };
       }
       
       const response = await fetch(endpoint, {
@@ -378,10 +492,27 @@ const AssignConsignment = () => {
           title: "Success",
           description: data.message,
         });
+        
+        // Dispatch event to notify other components about consignment assignment update
+        const event = new CustomEvent('consignmentAssignmentUpdated', {
+          detail: {
+            corporateId: assignmentType === 'corporate' ? corporateId : null,
+            officeUserId: assignmentType === 'office_user' ? officeUserId : null,
+            assignmentType: assignmentType,
+            startNumber: parseInt(startNumber),
+            endNumber: parseInt(endNumber),
+            totalNumbers: parseInt(endNumber) - parseInt(startNumber) + 1
+          }
+        });
+        window.dispatchEvent(event);
+        console.log('Dispatched consignmentAssignmentUpdated event for', assignmentType, assignmentType === 'corporate' ? corporateId : officeUserId);
+        
         setShowAssignDialog(false);
         setAssignmentForm({
           corporateId: '',
           officeUserId: '',
+          courierBoyId: '',
+          medicineUserId: '',
           assignmentType: 'corporate',
           startNumber: '',
           endNumber: '',
@@ -390,6 +521,8 @@ const AssignConsignment = () => {
         });
         fetchData();
         fetchOfficeUsers(); // Refresh office users data to show new assignments
+        fetchCourierBoys();
+        fetchMedicineUsers(); // Refresh medicine users data to show new assignments
         fetchHighestNumber(); // Update the highest number after assignment
       } else {
         const error = await response.json();
@@ -410,8 +543,57 @@ const AssignConsignment = () => {
   useEffect(() => {
     fetchData();
     fetchOfficeUsers();
+    fetchCourierBoys();
+    fetchMedicineUsers();
     fetchHighestNumber();
   }, [searchTerm]);
+
+  // Listen for consignment usage updates from other components
+  useEffect(() => {
+    const handleConsignmentUsageUpdate = (event: CustomEvent) => {
+      const { corporateId, officeUserId, assignmentType } = event.detail;
+      console.log(`Consignment usage updated for ${assignmentType}:`, { corporateId, officeUserId });
+      
+      // Refresh the data to reflect the usage update
+      fetchData();
+      fetchOfficeUsers();
+      fetchCourierBoys();
+      fetchMedicineUsers();
+      
+      // Show a toast notification
+      toast({
+        title: "Usage Updated",
+        description: `Consignment usage has been updated`,
+      });
+    };
+
+    const handleConsignmentAssignmentUpdate = (event: CustomEvent) => {
+      const { corporateId, officeUserId, assignmentType } = event.detail;
+      console.log(`Consignment assignment updated for ${assignmentType}:`, { corporateId, officeUserId });
+      
+      // Refresh the data to reflect the assignment update
+      fetchData();
+      fetchOfficeUsers();
+      fetchCourierBoys();
+      fetchMedicineUsers();
+      
+      // Show a toast notification
+      toast({
+        title: "Assignment Updated",
+        description: `Consignment assignment has been updated`,
+      });
+    };
+
+    // Add event listeners
+    window.addEventListener('consignmentUsageUpdated', handleConsignmentUsageUpdate as EventListener);
+    window.addEventListener('consignmentAssignmentUpdated', handleConsignmentAssignmentUpdate as EventListener);
+
+    // Cleanup event listeners
+    return () => {
+      window.removeEventListener('consignmentUsageUpdated', handleConsignmentUsageUpdate as EventListener);
+      window.removeEventListener('consignmentAssignmentUpdated', handleConsignmentAssignmentUpdate as EventListener);
+    };
+  }, []);
 
 
   // Handle quantity change and update end number
@@ -448,9 +630,13 @@ const AssignConsignment = () => {
           onClick={() => {
             setSelectedCorporate(null);
             setSelectedOfficeUser(null);
+            setSelectedCourierBoy(null);
+            setSelectedMedicineUser(null);
             setAssignmentForm({
               corporateId: '',
               officeUserId: '',
+              courierBoyId: '',
+              medicineUserId: '',
               assignmentType: 'corporate',
               startNumber: (highestNumber + 1).toString(),
               endNumber: (highestNumber + 100).toString(),
@@ -483,9 +669,11 @@ const AssignConsignment = () => {
 
       {/* Tabs for different assignment types */}
       <Tabs defaultValue="corporate" className="space-y-3">
-        <TabsList className="grid w-full grid-cols-2 h-10 bg-white/80 backdrop-blur-sm shadow-sm border-0 rounded-lg">
-          <TabsTrigger value="corporate" className="text-sm data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-sm transition-all">Corporate Companies</TabsTrigger>
-          <TabsTrigger value="office" className="text-sm data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-sm transition-all">Office Users</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-4 h-auto min-h-[40px] bg-white/80 backdrop-blur-sm shadow-sm border-0 rounded-lg gap-1 p-1">
+          <TabsTrigger value="corporate" className="text-xs sm:text-sm data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-sm transition-all px-2 py-2">Corporate</TabsTrigger>
+          <TabsTrigger value="office" className="text-xs sm:text-sm data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-sm transition-all px-2 py-2">Office Users</TabsTrigger>
+          <TabsTrigger value="courier_boy" className="text-xs sm:text-sm data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-sm transition-all px-2 py-2">Courier Boys</TabsTrigger>
+          <TabsTrigger value="medicine" className="text-xs sm:text-sm data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-sm transition-all px-2 py-2">Medicine</TabsTrigger>
         </TabsList>
 
         {/* Corporate Tab */}
@@ -755,6 +943,242 @@ const AssignConsignment = () => {
           </Card>
         </TabsContent>
 
+      {/* Courier Boys Tab */}
+      <TabsContent value="courier_boy" className="space-y-3">
+        <Card className="shadow-lg border-0 bg-white/90 backdrop-blur-sm">
+          <CardHeader className="pb-3 bg-gradient-to-r from-amber-50/30 to-yellow-50/30 rounded-t-lg">
+            <CardTitle className="text-lg text-gray-800">Courier Boys & Assignments</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-0 bg-gradient-to-r from-gray-50/50 to-yellow-50/30">
+                    <TableHead className="font-semibold text-gray-700 py-4">Name</TableHead>
+                    <TableHead className="font-semibold text-gray-700 py-4">Email</TableHead>
+                    <TableHead className="font-semibold text-gray-700 py-4">Phone</TableHead>
+                    <TableHead className="font-semibold text-gray-700 py-4">Area</TableHead>
+                    <TableHead className="font-semibold text-gray-700 py-4">Assignments</TableHead>
+                    <TableHead className="font-semibold text-gray-700 py-4">Usage</TableHead>
+                    <TableHead className="font-semibold text-gray-700 py-4">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {courierBoys.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                        No courier boys found
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    courierBoys.map((cb, index) => (
+                      <TableRow key={cb._id} className={`${index % 2 === 0 ? 'bg-white/50' : 'bg-yellow-50/20'} hover:bg-yellow-50/40 border-0 transition-all duration-200`}>
+                        <TableCell className="py-4 border-0 text-sm text-gray-800">{cb.fullName}</TableCell>
+                        <TableCell className="py-4 border-0 text-sm text-gray-600">{cb.email}</TableCell>
+                        <TableCell className="py-4 border-0 text-sm text-gray-600">{cb.phone || '-'}</TableCell>
+                        <TableCell className="py-4 border-0 text-sm text-gray-600">{cb.area || '-'}</TableCell>
+                        <TableCell className="py-4 border-0">
+                          <div className="space-y-1">
+                            {cb.consignmentAssignments && cb.consignmentAssignments.length > 0 ? (
+                              cb.consignmentAssignments.map((assignment, index) => (
+                                <div key={assignment._id} className="flex items-center gap-1">
+                                  <Badge variant="outline" className="text-xs px-2 py-1 bg-green-50 text-green-700 border-green-200">
+                                    {assignment.startNumber}-{assignment.endNumber}
+                                  </Badge>
+                                  <span className="text-xs text-gray-500">
+                                    ({assignment.totalNumbers})
+                                  </span>
+                                </div>
+                              ))
+                            ) : (
+                              <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-600">
+                                No Assignments
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-4 border-0">
+                          {cb.consignmentAssignments && cb.consignmentAssignments.length > 0 ? (
+                            <div className="space-y-1">
+                              {cb.consignmentAssignments.map((assignment) => (
+                                <div key={assignment._id} className="flex items-center gap-2">
+                                  <div className="w-12 bg-gray-200 rounded-full h-2 shadow-inner">
+                                    <div
+                                      className={`h-2 rounded-full shadow-sm ${getUsageColor(assignment.usagePercentage || 0)}`}
+                                      style={{ width: `${assignment.usagePercentage || 0}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-xs text-gray-600 font-medium">
+                                    {assignment.usedCount || 0}/{assignment.totalNumbers}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-4 border-0">
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-3 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 hover:border-blue-300 shadow-sm hover:shadow-md transition-all"
+                              onClick={() => {
+                                setSelectedCourierBoy(cb);
+                                setAssignmentForm(prev => ({
+                                  ...prev,
+                                  assignmentType: 'courier_boy',
+                                  courierBoyId: cb._id,
+                                  startNumber: (highestNumber + 1).toString(),
+                                  endNumber: (highestNumber + prev.quantity).toString()
+                                }));
+                                setShowAssignDialog(true);
+                              }}
+                            >
+                              <Plus className="h-3 w-3 mr-1" />
+                              Assign
+                            </Button>
+                            {cb.hasAssignments && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-3 text-xs bg-green-50 hover:bg-green-100 text-green-700 border-green-200 hover:border-green-300 shadow-sm hover:shadow-md transition-all"
+                                onClick={() => fetchUsageData(cb._id, 'courier_boy')}
+                              >
+                                <Eye className="h-3 w-3 mr-1" />
+                                View
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
+      {/* Medicine Tab */}
+      <TabsContent value="medicine" className="space-y-3">
+        <Card className="shadow-lg border-0 bg-white/90 backdrop-blur-sm">
+          <CardHeader className="pb-3 bg-gradient-to-r from-purple-50/30 to-pink-50/30 rounded-t-lg">
+            <CardTitle className="text-lg text-gray-800">Medicine Users & Assignments</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-0 bg-gradient-to-r from-gray-50/50 to-purple-50/30">
+                    <TableHead className="font-semibold text-gray-700 py-4">Name</TableHead>
+                    <TableHead className="font-semibold text-gray-700 py-4">Email</TableHead>
+                    <TableHead className="font-semibold text-gray-700 py-4">Assignments</TableHead>
+                    <TableHead className="font-semibold text-gray-700 py-4">Usage</TableHead>
+                    <TableHead className="font-semibold text-gray-700 py-4">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {medicineUsers.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-8 text-gray-500">
+                        No medicine users found
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    medicineUsers.map((user, index) => (
+                      <TableRow key={user._id} className={`${index % 2 === 0 ? 'bg-white/50' : 'bg-purple-50/20'} hover:bg-purple-50/40 border-0 transition-all duration-200`}>
+                        <TableCell className="py-4 border-0">
+                          <div className="font-medium text-sm text-gray-800">{user.name}</div>
+                        </TableCell>
+                        <TableCell className="py-4 border-0 text-sm text-gray-600">{user.email}</TableCell>
+                        <TableCell className="py-4 border-0">
+                          <div className="space-y-1">
+                            {user.consignmentAssignments && user.consignmentAssignments.length > 0 ? (
+                              user.consignmentAssignments.map((assignment, index) => (
+                                <div key={assignment._id} className="flex items-center gap-1">
+                                  <Badge variant="outline" className="text-xs px-2 py-1 bg-green-50 text-green-700 border-green-200">
+                                    {assignment.startNumber}-{assignment.endNumber}
+                                  </Badge>
+                                  <span className="text-xs text-gray-500">
+                                    ({assignment.totalNumbers})
+                                  </span>
+                                </div>
+                              ))
+                            ) : (
+                              <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-600">
+                                No Assignments
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="py-4 border-0">
+                          {user.consignmentAssignments && user.consignmentAssignments.length > 0 ? (
+                            <div className="space-y-1">
+                              {user.consignmentAssignments.map((assignment) => (
+                                <div key={assignment._id} className="flex items-center gap-2">
+                                  <div className="w-12 bg-gray-200 rounded-full h-2 shadow-inner">
+                                    <div
+                                      className={`h-2 rounded-full shadow-sm ${getUsageColor(assignment.usagePercentage || 0)}`}
+                                      style={{ width: `${assignment.usagePercentage || 0}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-xs text-gray-600 font-medium">
+                                    {assignment.usedCount || 0}/{assignment.totalNumbers}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="py-4 border-0">
+                          <div className="flex items-center gap-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-3 text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200 hover:border-blue-300 shadow-sm hover:shadow-md transition-all"
+                              onClick={() => {
+                                setSelectedMedicineUser(user);
+                                setAssignmentForm(prev => ({
+                                  ...prev,
+                                  assignmentType: 'medicine',
+                                  medicineUserId: user._id,
+                                  startNumber: (highestNumber + 1).toString(),
+                                  endNumber: (highestNumber + prev.quantity).toString()
+                                }));
+                                setShowAssignDialog(true);
+                              }}
+                            >
+                              <Plus className="h-3 w-3 mr-1" />
+                              Assign
+                            </Button>
+                            {user.hasAssignments && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 px-3 text-xs bg-green-50 hover:bg-green-100 text-green-700 border-green-200 hover:border-green-300 shadow-sm hover:shadow-md transition-all"
+                                onClick={() => fetchUsageData(user._id, 'medicine')}
+                              >
+                                <Eye className="h-3 w-3 mr-1" />
+                                View
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      </TabsContent>
+
       </Tabs>
 
       {/* Assign Consignment Dialog */}
@@ -772,14 +1196,18 @@ const AssignConsignment = () => {
                 value={assignmentForm.assignmentType}
                 onChange={(e) => setAssignmentForm(prev => ({ 
                   ...prev, 
-                  assignmentType: e.target.value as 'corporate' | 'office_user',
+                assignmentType: e.target.value as 'corporate' | 'office_user' | 'courier_boy' | 'medicine',
                   corporateId: '',
-                  officeUserId: ''
+                officeUserId: '',
+                courierBoyId: '',
+                medicineUserId: ''
                 }))}
                 className="w-full p-2 border border-gray-300 rounded-md"
               >
                 <option value="corporate">Corporate Company</option>
                 <option value="office_user">Office User</option>
+              <option value="courier_boy">Courier Boy</option>
+                <option value="medicine">Medicine</option>
               </select>
             </div>
 
@@ -838,6 +1266,70 @@ const AssignConsignment = () => {
                   >
                     <option value="">Select an office user...</option>
                     {officeUsers.map((user) => (
+                      <option key={user._id} value={user._id}>
+                        {user.name} ({user.email})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )
+            )}
+
+            {/* Courier Boy Selection */}
+            {assignmentForm.assignmentType === 'courier_boy' && (
+              selectedCourierBoy ? (
+                <div className="p-3 bg-yellow-50 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <User className="h-4 w-4" />
+                    <span className="font-medium">{selectedCourierBoy.fullName}</span>
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {selectedCourierBoy.email}{selectedCourierBoy.phone ? ` • ${selectedCourierBoy.phone}` : ''}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="courierBoySelect">Select Courier Boy</Label>
+                  <select
+                    id="courierBoySelect"
+                    value={assignmentForm.courierBoyId}
+                    onChange={(e) => setAssignmentForm(prev => ({ ...prev, courierBoyId: e.target.value }))}
+                    className="w-full p-2 border border-gray-300 rounded-md"
+                  >
+                    <option value="">Select a courier boy...</option>
+                    {courierBoys.map((cb) => (
+                      <option key={cb._id} value={cb._id}>
+                        {cb.fullName} ({cb.email})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )
+            )}
+
+            {/* Medicine User Selection */}
+            {assignmentForm.assignmentType === 'medicine' && (
+              selectedMedicineUser ? (
+                <div className="p-3 bg-purple-50 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <User className="h-4 w-4" />
+                    <span className="font-medium">{selectedMedicineUser.name}</span>
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    {selectedMedicineUser.email}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="medicineUserSelect">Select Medicine User</Label>
+                  <select
+                    id="medicineUserSelect"
+                    value={assignmentForm.medicineUserId}
+                    onChange={(e) => setAssignmentForm(prev => ({ ...prev, medicineUserId: e.target.value }))}
+                    className="w-full p-2 border border-gray-300 rounded-md"
+                  >
+                    <option value="">Select a medicine user...</option>
+                    {medicineUsers.map((user) => (
                       <option key={user._id} value={user._id}>
                         {user.name} ({user.email})
                       </option>
@@ -946,7 +1438,7 @@ const AssignConsignment = () => {
               <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
                 <div>
                   <div className="text-sm text-muted-foreground">
-                    {usageData.assignment.assignmentType === 'corporate' ? 'Company' : 'Office User'}
+                    {usageData.assignment.assignmentType === 'corporate' ? 'Company' : usageData.assignment.assignmentType === 'office_user' ? 'Office User' : usageData.assignment.assignmentType === 'courier_boy' ? 'Courier Boy' : 'Medicine User'}
                   </div>
                   <div className="font-medium">
                     {usageData.assignment.assignmentType === 'corporate' 

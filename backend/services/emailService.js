@@ -2,6 +2,8 @@ import nodemailer from 'nodemailer';
 import { google } from 'googleapis';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { readFileSync } from 'fs';
+import S3Service from './s3Service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -152,11 +154,13 @@ class EmailService {
                 background-color: #f5f5f5;
             }
             .container {
+                border:1px solid black;
                 background-color: white;
                 border-radius: 10px;
                 box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
                 overflow: hidden;
             }
+
             .header {
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 color: white;
@@ -531,7 +535,8 @@ class EmailService {
         to: clientEmail,
         subject: `📋 Corporate Pricing Approval Required - ${name}`,
         html: this.generatePricingApprovalEmail(pricingData, approvalUrl, rejectionUrl),
-        text: this.generateTextVersion(pricingData, approvalUrl, rejectionUrl)
+        text: this.generateTextVersion(pricingData, approvalUrl, rejectionUrl),
+        attachments: []
       };
 
       const result = await this.transporter.sendMail(mailOptions);
@@ -820,7 +825,8 @@ OCL Courier & Logistics Team
         to: email,
         subject: `🎉 Corporate Registration Complete - ${companyName} (${corporateId})`,
         html: this.generateCorporateRegistrationEmail(corporateData),
-        text: this.generateCorporateRegistrationTextVersion(corporateData)
+        text: this.generateCorporateRegistrationTextVersion(corporateData),
+        attachments: []
       };
 
       const result = await this.transporter.sendMail(mailOptions);
@@ -906,7 +912,8 @@ OCL Courier & Logistics Team
             <p><small>This is an automated message. For support, contact us at support@oclcourier.com</small></p>
           </div>
         `,
-        text: `Dear ${clientName || 'Valued Client'},\n\n${message}\n\nThank you for your business with OCL Courier & Logistics.`
+        text: `Dear ${clientName || 'Valued Client'},\n\n${message}\n\nThank you for your business with OCL Courier & Logistics.`,
+        attachments: []
       };
 
       const result = await this.transporter.sendMail(mailOptions);
@@ -1168,7 +1175,8 @@ OCL Courier & Logistics Team
         to: email,
         subject: `🎉 Employee Registration Complete - ${name} (${employeeId})`,
         html: this.generateEmployeeRegistrationEmail(employeeData),
-        text: this.generateEmployeeRegistrationTextVersion(employeeData)
+        text: this.generateEmployeeRegistrationTextVersion(employeeData),
+        attachments: []
       };
 
       const result = await this.transporter.sendMail(mailOptions);
@@ -1225,6 +1233,419 @@ OCL Courier & Logistics Team
     `;
   }
 
+  // Validate image URLs before using them in emails
+  async validateImageUrls(imageUrls) {
+    if (!imageUrls || imageUrls.length === 0) {
+      return [];
+    }
+
+    const validatedUrls = [];
+    for (const imageUrl of imageUrls) {
+      try {
+        // Check if URL is valid
+        new URL(imageUrl);
+        validatedUrls.push(imageUrl);
+        console.log(`✅ Valid image URL: ${imageUrl.substring(0, 50)}...`);
+      } catch (error) {
+        console.warn(`⚠️ Invalid image URL: ${imageUrl}`, error.message);
+        // Skip invalid URLs
+      }
+    }
+    
+    return validatedUrls;
+  }
+
+  // Generate HTML email template for shipment confirmation
+  async generateShipmentConfirmationEmail(shipmentData) {
+    const {
+      consignmentNumber,
+      invoiceNumber,
+      receiverCompanyName,
+      receiverConcernPerson,
+      destinationCity,
+      bookingDate,
+      senderCompanyName,
+      senderConcernPerson,
+      recipientConcernPerson,
+      recipientPinCode,
+      recipientMobileNumber,
+      invoiceValue,
+      packageImages,
+      invoiceImages
+    } = shipmentData;
+
+    // Calculate estimated delivery date (booking date + 5 days)
+    const estimatedDeliveryDate = new Date(bookingDate);
+    estimatedDeliveryDate.setDate(estimatedDeliveryDate.getDate() + 5);
+    const formattedDeliveryDate = estimatedDeliveryDate.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+
+    // Format arrival date
+    const arrivalDate = estimatedDeliveryDate.toLocaleDateString('en-US', {
+      day: 'numeric',
+      month: 'long',
+      weekday: 'long'
+    });
+
+    // Determine sender name (company name or concern person)
+    const senderName = senderCompanyName || senderConcernPerson;
+    
+    // Determine receiver display (company name or concern person)
+    const receiverDisplay = receiverCompanyName || receiverConcernPerson;
+    
+    // Debug: Log the image URLs being used
+    console.log('📧 Email Debug - Package Images:', packageImages);
+    console.log('📧 Email Debug - Invoice Images:', invoiceImages);
+
+    // Validate image URLs first
+    const validatedPackageImages = await this.validateImageUrls(packageImages);
+    const validatedInvoiceImages = await this.validateImageUrls(invoiceImages);
+    
+    console.log(`📧 Validated ${validatedPackageImages.length}/${packageImages?.length || 0} package images`);
+    console.log(`📧 Validated ${validatedInvoiceImages.length}/${invoiceImages?.length || 0} invoice images`);
+
+    // Generate direct presigned URLs for email access (7 days expiration)
+    console.log('🔗 Generating direct presigned URLs for email images...');
+    const [packageImageUrls, invoiceImageUrls, logoPermanentUrl] = await Promise.all([
+      S3Service.convertToPermanentUrlsForEmail(validatedPackageImages), // Direct presigned URLs
+      S3Service.convertToPermanentUrlsForEmail(validatedInvoiceImages), // Direct presigned URLs
+      S3Service.convertToPermanentUrlsForEmail(['https://ocl-services-uploads.s3.ap-south-1.amazonaws.com/Own-Upload/logo/Group_5-removebg-preview.png']) // Direct presigned URL for logo
+    ]);
+
+    // Log presigned URL usage
+    console.log('📧 Using direct presigned URLs for email images:');
+    console.log(`📦 Package Images: ${packageImageUrls.length} presigned URLs generated`);
+    console.log(`📄 Invoice Images: ${invoiceImageUrls.length} presigned URLs generated`);
+    console.log(`🏢 OCL Logo: Presigned URL generated - ${logoPermanentUrl[0] ? logoPermanentUrl[0].substring(0, 100) + '...' : 'N/A'}`);
+
+    // Generate package images HTML with error handling
+    const packageImagesHtml = packageImageUrls && packageImageUrls.length > 0 
+      ? packageImageUrls.map((imageUrl, index) => {
+          console.log(`📧 Using presigned package image URL ${index + 1}:`, imageUrl.substring(0, 100) + '...');
+          return `<img src="${imageUrl}" alt="Package Image ${index + 1}" class="package-image" style="width: 80px; height: 80px; object-fit: cover; border-radius: 8px; border: 2px solid #E5E5E5; background-color: #EFEFEF; margin: 5px;" onerror="this.style.display='none'; console.log('Failed to load package image ${index + 1}');">`;
+        }).join('')
+      : '';
+
+    // Generate invoice images HTML with error handling
+    const invoiceImagesHtml = invoiceImageUrls && invoiceImageUrls.length > 0 
+      ? invoiceImageUrls.map((imageUrl, index) => {
+          console.log(`📧 Using presigned invoice image URL ${index + 1}:`, imageUrl.substring(0, 100) + '...');
+          return `<img src="${imageUrl}" alt="Invoice Image ${index + 1}" class="invoice-image" style="width: 80px; height: 80px; object-fit: cover; border-radius: 8px; border: 2px solid #E5E5E5; background-color: #EFEFEF; margin: 5px;" onerror="this.style.display='none'; console.log('Failed to load invoice image ${index + 1}');">`;
+        }).join('')
+      : '';
+
+    return `
+    <!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shipment Confirmed - ${consignmentNumber}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f3f4f6;font-family:Arial,sans-serif;line-height:1.5;color:#000;">
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f3f4f6;">
+<tr><td align="center">
+
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="background-color:#ffffff;border-radius:8px;overflow:hidden;">
+
+  <!-- Header -->
+  <tr>
+    <td style="background-color:#233700;color:#fff;padding:22px 18px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td align="left">
+            <img src="${logoPermanentUrl[0] || 'https://ocl-services-uploads.s3.ap-south-1.amazonaws.com/Own-Upload/logo/Group_5-removebg-preview.png'}" alt="OCL Logo" width="80" height="25" style="display:block;object-fit:contain;" onerror="this.src='https://ocl-services-uploads.s3.ap-south-1.amazonaws.com/Own-Upload/logo/Group_5-removebg-preview.png';">
+          </td>
+          <td align="right" style="font-size:11px;line-height:1.4;">
+            <div style="font-weight:bold;"><a href="#" style="color:#fff;text-decoration:underline;">Your Shipment Details</a></div>
+            <div style="font-weight:bold;"><a href="http://oclservices.com/" style="color:#fff;text-decoration:underline;">oclservices.com</a></div>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Safety Banner -->
+  <tr>
+    <td style="background-color:#b3c3b4;color:#0c0b42;padding:0px 15px;text-align:center;font-size:10px;font-weight:500;">
+      Your safety matters. Every shipment is sanitized and safely handled.
+    </td>
+  </tr>
+
+  <!-- Greeting -->
+  <tr>
+    <td style="padding:15px 18px 10px;background-color:#ffffff;">
+      <p style="margin:0;font-size:14px;">Hi ${senderName},</p>
+      <p style="margin:5px 0 10px;font-size:13px;">Your shipment has been placed successfully.</p>
+      <p style="font-size:13px;margin:0 0 6px;">
+        We aim to deliver by <strong>${formattedDeliveryDate}</strong>. Once packed and shipped, you’ll be updated with tracking info.
+      </p>
+    </td>
+  </tr>
+
+  <!-- Order Details -->
+  <tr>
+    <td style="background-color:#efc4c4;padding:15px 18px;border-top:1px solid #eee;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td valign="top">
+            <h3 style="font-size:14px;margin:0 0 5px;font-weight:bold;">Shipment Details</h3>
+            <p style="margin:0;font-size:12px;">AWB: <a href="#" style="color:#0077cc;text-decoration:none;">${consignmentNumber}</a></p>
+            <p style="margin:0;font-size:12px;">Placed: ${new Date().toLocaleDateString('en-US', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}</p>
+            <p style="margin:0;font-size:12px;">Delivered to: ${recipientConcernPerson}, ${recipientPinCode}</p>
+          </td>
+          <td align="right" valign="top">
+            <a href="#" style="display:inline-block;background-color:#000;color:#fff;text-decoration:none;padding:8px 15px;border-radius:4px;font-size:12px;margin-top:15px;">Track</a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Package/Invoice Images -->
+  <tr>
+    <td style="padding:10px 18px;background-color:#ffffff;">
+      ${packageImageUrls && packageImageUrls.length > 0 ? `
+      <div>
+        <h5 style="color:#FF8C00;font-size:13px;margin:0 0 5px;">Package Images:</h5>
+        <table role="presentation" width="100%" cellpadding="3" cellspacing="0"><tr>${packageImagesHtml}</tr></table>
+      </div>` : ''}
+      ${invoiceImageUrls && invoiceImageUrls.length > 0 ? `
+      <div style="margin-top:10px;">
+        <h5 style="color:#FF8C00;font-size:13px;margin:0 0 5px;">Invoice Images:</h5>
+        <table role="presentation" width="100%" cellpadding="3" cellspacing="0"><tr>${invoiceImagesHtml}</tr></table>
+      </div>` : ''}
+    </td>
+  </tr>
+
+  <!-- Please Note -->
+  <tr>
+    <td style="background-color:#5c6f6c;padding:15px 18px;">
+      <h4 style="font-size:13px;font-weight:bold;margin:0 0 5px;color:white;">Please note:</h4>
+      <p style="font-size:12px;margin:0 0 6px;line-height:1.4;color:white;">
+        We never ask for banking details. Avoid sharing personal info with callers claiming to be from OCL.
+      </p>
+      <p style="font-size:12px;margin:0;color:white;">
+        Need help? Contact <a href="tel:+918453994809" style="color:white;text-decoration:none;">+91 8453994809</a> or 
+        <a href="mailto:info@oclservices.com" style="color:white;text-decoration:none;">info@oclservices.com</a>.
+      </p>
+    </td>
+  </tr>
+
+  <!-- Footer Icons -->
+  <tr>
+    <td style="background-color:#ffffff;padding:15px 18px 10px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td align="center" width="33%">
+            <div style="width:35px;height:35px;border-radius:50%;margin:0 auto 5px;line-height:35px;font-size:16px;">🛡️</div>
+            <div style="font-size:11px;">Assured Quality</div>
+          </td>
+          <td align="center" width="33%">
+            <div style="width:35px;height:35px;border-radius:50%;margin:0 auto 5px;line-height:35px;font-size:16px;">📦</div>
+            <div style="font-size:11px;">100% Handpicked</div>
+          </td>
+          <td align="center" width="33%">
+            <div style="width:35px;height:35px;border-radius:50%;margin:0 auto 5px;line-height:35px;font-size:16px;">↩️</div>
+            <div style="font-size:11px;">Easy Returns</div>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+  <!-- Social Footer -->
+  <tr>
+    <td style="background-color:#012A02;color:#fff;padding:12px 18px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+          <td align="left">
+            <!-- Facebook Icon -->
+            <a href="https://facebook.com/oclcourier" style="display:inline-block;background-color:#1877F2;border-radius:50%;width:32px;height:32px;text-align:center;line-height:32px;margin-right:8px;text-decoration:none;vertical-align:middle;">
+              <span style="color:#fff;font-size:16px;font-weight:bold;">f</span>
+            </a>
+            <!-- Instagram Icon -->
+            <a href="https://www.instagram.com/ocl_services/" style="display:inline-block;background:linear-gradient(45deg, #f09433 0%,#e6683c 25%,#dc2743 50%,#cc2366 75%,#bc1888 100%);border-radius:50%;width:32px;height:32px;text-align:center;line-height:32px;margin-right:8px;text-decoration:none;vertical-align:middle;">
+              <span style="color:#fff;font-size:16px;font-weight:bold;">📷</span>
+            </a>
+            <!-- LinkedIn Icon -->
+            <a href="https://www.linkedin.com/company/our-courier-and-logistics/" style="display:inline-block;background-color:#0077B5;border-radius:50%;width:32px;height:32px;text-align:center;line-height:32px;margin-right:8px;text-decoration:none;vertical-align:middle;">
+              <span style="color:#fff;font-size:16px;font-weight:bold;">in</span>
+            </a>
+          </td>
+          <td align="right" style="font-size:11px;">
+            <a href="mailto:info@oclservices.com" style="color:#fff;text-decoration:underline;margin-right:6px;">Contact</a>
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/faq" style="color:#fff;text-decoration:underline;margin-right:6px;">FAQ</a>
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}" style="color:#fff;text-decoration:underline;">Website</a>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+
+</table>
+</td></tr></table>
+
+</body>
+</html>
+
+
+    `;
+  }
+
+  // Send shipment confirmation email
+  async sendShipmentConfirmationEmail(shipmentData) {
+    try {
+      const { senderEmail, consignmentNumber } = shipmentData;
+      
+      if (!senderEmail) {
+        throw new Error('Sender email is required to send shipment confirmation');
+      }
+
+      // Ensure email service is initialized
+      if (!this.isInitialized) {
+        await this.initializeEmailService();
+      }
+
+      if (!this.transporter) {
+        throw new Error('Email service not properly initialized');
+      }
+
+      // Ensure OAuth2 access token is fresh
+      if (this.oauth2Client && process.env.GOOGLE_REFRESH_TOKEN) {
+        try {
+          const { credentials } = await this.oauth2Client.refreshAccessToken();
+          this.oauth2Client.setCredentials(credentials);
+          
+          // Update transporter with new access token
+          this.transporter = nodemailer.createTransporter({
+            service: 'gmail',
+            auth: {
+              type: 'OAuth2',
+              user: process.env.GOOGLE_EMAIL || 'your-email@gmail.com',
+              clientId: this.oauth2Client._clientId,
+              clientSecret: this.oauth2Client._clientSecret,
+              refreshToken: process.env.GOOGLE_REFRESH_TOKEN,
+              accessToken: credentials.access_token
+            }
+          });
+        } catch (refreshError) {
+          console.warn('⚠️ Failed to refresh OAuth2 token, using existing credentials:', refreshError.message);
+        }
+      }
+
+      // Generate email content with error handling for images
+      let emailHtml;
+      try {
+        emailHtml = await this.generateShipmentConfirmationEmail(shipmentData);
+        console.log('✅ Email HTML generated successfully');
+      } catch (htmlError) {
+        console.error('❌ Error generating email HTML:', htmlError);
+        // Fallback to text-only email if HTML generation fails
+        emailHtml = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+            <h2>📦 Shipment Confirmed - AWB: ${consignmentNumber}</h2>
+            <p>Your shipment has been successfully booked with OCL Courier & Logistics.</p>
+            <p>Due to technical issues, images could not be included in this email.</p>
+            <p>Please contact support if you need to view your shipment images.</p>
+            <hr>
+            <p><small>This is an automated message. For support, contact us at support@oclcourier.com</small></p>
+          </div>
+        `;
+      }
+
+      const mailOptions = {
+        from: `"OCL Courier & Logistics" <${process.env.GOOGLE_EMAIL || process.env.SMTP_USER || 'noreply@oclcourier.com'}>`,
+        to: senderEmail,
+        subject: `📦 Shipment Confirmed - AWB: ${consignmentNumber}`,
+        html: emailHtml,
+        text: this.generateShipmentConfirmationTextVersion(shipmentData),
+        attachments: []
+      };
+
+      const result = await this.transporter.sendMail(mailOptions);
+      console.log(`✅ Shipment confirmation email sent to ${senderEmail}:`, result.messageId);
+      
+      return {
+        success: true,
+        messageId: result.messageId,
+        recipient: senderEmail
+      };
+    } catch (error) {
+      console.error('❌ Error sending shipment confirmation email:', error);
+      throw error;
+    }
+  }
+
+  // Generate text version of shipment confirmation email
+  generateShipmentConfirmationTextVersion(shipmentData) {
+    const {
+      consignmentNumber,
+      invoiceNumber,
+      receiverCompanyName,
+      receiverConcernPerson,
+      destinationCity,
+      bookingDate,
+      senderCompanyName,
+      senderConcernPerson,
+      recipientConcernPerson,
+      recipientPinCode,
+      recipientMobileNumber,
+      invoiceValue,
+      packageImages,
+      invoiceImages
+    } = shipmentData;
+
+    // Calculate estimated delivery date (booking date + 5 days)
+    const estimatedDeliveryDate = new Date(bookingDate);
+    estimatedDeliveryDate.setDate(estimatedDeliveryDate.getDate() + 5);
+    const formattedDeliveryDate = estimatedDeliveryDate.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+
+    const senderName = senderCompanyName || senderConcernPerson;
+    const receiverDisplay = receiverCompanyName || receiverConcernPerson;
+    
+    return `
+SHIPMENT CONFIRMED - AWB: ${consignmentNumber}
+
+Dear ${senderName},
+
+Your shipment has been successfully booked with OCL Courier & Logistics.
+
+SHIPMENT DETAILS:
+- AWB Number: ${consignmentNumber}
+- Invoice Number: ${invoiceNumber}
+- Receiver: ${recipientConcernPerson} - ${receiverDisplay} - ${destinationCity}
+- Pin Code: ${recipientPinCode}
+- Mobile: ${recipientMobileNumber}
+- Estimated Delivery: ${formattedDeliveryDate}
+- Status: BOOKED
+
+PACKAGE DETAILS:
+- Invoice Value: ₹${invoiceValue?.toLocaleString() || '0'}
+${packageImages && packageImages.length > 0 ? `- Package Images: ${packageImages.length} image(s) with secure access links` : ''}
+${invoiceImages && invoiceImages.length > 0 ? `- Invoice Images: ${invoiceImages.length} image(s) with secure access links` : ''}
+
+TRACK YOUR SHIPMENT:
+Visit: ${process.env.FRONTEND_URL || 'http://localhost:3000'}/track?awb=${consignmentNumber}
+
+Thank you for choosing OCL Courier & Logistics!
+
+Best regards,
+OCL Courier & Logistics Team
+
+This is an automated message. Please do not reply to this email.
+For support, contact us at support@oclcourier.com
+    `;
+  }
+
   // Test email configuration
   async testConnection() {
     try {
@@ -1235,6 +1656,12 @@ OCL Courier & Logistics Team
       console.error('❌ Email service connection failed:', error);
       return false;
     }
+  }
+
+  // Helper method to get social media icon attachments (DISABLED)
+  getSocialMediaIconAttachments() {
+    // Social media attachments have been disabled
+    return [];
   }
 
   async sendEmailWithPdfAttachment({ to, subject, html, text, pdfBuffer, filename = 'manifest.pdf' }) {

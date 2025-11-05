@@ -151,6 +151,24 @@ corporateSchema.virtual('fullAddress').get(function() {
   return addressParts.join(', ');
 });
 
+// Virtual for logo URL (handles both S3 and local paths)
+corporateSchema.virtual('logoUrl').get(function() {
+  if (!this.logo) return null;
+  
+  // If it's already an S3 URL, return as is
+  if (this.logo.startsWith('https://') && this.logo.includes('.s3.') && this.logo.includes('.amazonaws.com/')) {
+    return this.logo;
+  }
+  
+  // If it's a local path, return with API endpoint for serving
+  if (this.logo.startsWith('/uploads/')) {
+    const filename = this.logo.split('/').pop();
+    return `/api/upload/serve/${filename}`;
+  }
+  
+  return this.logo;
+});
+
 // Ensure virtual fields are serialized
 corporateSchema.set('toJSON', {
   virtuals: true,

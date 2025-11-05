@@ -19,8 +19,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
 import { 
   Dialog,
   DialogContent,
@@ -61,6 +59,9 @@ interface AddressFormData {
     totalPackages: string;
     natureOfConsignment: string;
   };
+  uploadData?: {
+    totalPackages: number;
+  };
   senderName?: string;
   senderCity?: string;
   senderState?: string;
@@ -93,7 +94,8 @@ interface AddressFormData {
       assignedAt: string;
       assignedBy: string;
     }>;
-    status?: 'booked' | 'assigned' | 'partially_assigned' | 'picked_up' | 'in_transit' | 'delivered' | 'failed';
+    status?: 'booked' | 'assigned' | 'partially_assigned' | 'picked_up' | 'in_transit' | 'delivered' | 'failed' | 'completed';
+    completedAt?: string;
   };
 }
 
@@ -107,12 +109,20 @@ interface Coloader {
     state: string;
     city: string;
     pincode: string;
+    area?: string;
   }>;
   toLocations: Array<{
     state: string;
     city: string;
     pincode: string;
+    area?: string;
   }>;
+  companyAddress?: {
+    city?: string;
+    state?: string;
+    pincode?: string;
+    area?: string;
+  };
   isActive: boolean;
 }
 
@@ -150,7 +160,13 @@ const AssignColoader = () => {
   const [currentLeg, setCurrentLeg] = useState(1);
   const [assignedColoaders, setAssignedColoaders] = useState<Coloader[]>([]);
   const [isEditMode, setIsEditMode] = useState(false);
-  const [existingAssignments, setExistingAssignments] = useState<any[]>([]);
+  const [existingAssignments, setExistingAssignments] = useState<Array<{
+    legNumber: number;
+    coloaderId: string;
+    coloaderName: string;
+    assignedAt?: string;
+    assignedBy?: string;
+  }>>([]);
   const [customFromLocation, setCustomFromLocation] = useState('');
   const [customToLocation, setCustomToLocation] = useState('');
   // Path-level assignment state
@@ -158,16 +174,19 @@ const AssignColoader = () => {
   const [selectedRouteOrders, setSelectedRouteOrders] = useState<AddressFormData[]>([]);
   
   // Tab state for manage orders
-  const [activeTab, setActiveTab] = useState<'normal' | 'assigned'>('normal');
+  const [activeTab, setActiveTab] = useState<'normal' | 'assigned' | 'completed'>('normal');
   
   // State for expanded paths in assigned tab
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   
   const { toast } = useToast();
 
-  // Group assigned orders by path
+  // Group assigned orders by path (excluding completed ones)
   const getAssignedPaths = () => {
-    const assignedOrders = addressForms.filter(order => order.assignmentData?.assignedColoader);
+    const assignedOrders = addressForms.filter(order => 
+      order.assignmentData?.assignedColoader && 
+      order.assignmentData?.status !== 'completed'
+    );
     
     const pathGroups: Record<string, {
       route: string;
@@ -175,6 +194,7 @@ const AssignColoader = () => {
       assignedDate: string;
       coloaderName: string;
       totalWeight: number;
+      totalPackages: number;
     }> = {};
 
     assignedOrders.forEach(order => {
@@ -188,16 +208,79 @@ const AssignColoader = () => {
           orders: [],
           assignedDate,
           coloaderName,
-          totalWeight: 0
+          totalWeight: 0,
+          totalPackages: 0
         };
       }
       
       pathGroups[route].orders.push(order);
       pathGroups[route].totalWeight += order.shipmentData?.actualWeight || 0;
+      
+      // Handle totalPackages from both shipmentData (string) and uploadData (number)
+      let packageCount = 0;
+      if (order.uploadData?.totalPackages) {
+        packageCount = order.uploadData.totalPackages;
+      } else if (order.shipmentData?.totalPackages) {
+        packageCount = parseInt(order.shipmentData.totalPackages, 10) || 0;
+      }
+      pathGroups[route].totalPackages += packageCount;
     });
 
     return Object.values(pathGroups).sort((a, b) => 
       new Date(b.assignedDate).getTime() - new Date(a.assignedDate).getTime()
+    );
+  };
+
+  // Group completed assigned orders by path
+  const getCompletedPaths = () => {
+    const completedOrders = addressForms.filter(order => 
+      order.assignmentData?.assignedColoader && 
+      order.assignmentData?.status === 'completed'
+    );
+    
+    const pathGroups: Record<string, {
+      route: string;
+      orders: AddressFormData[];
+      assignedDate: string;
+      coloaderName: string;
+      totalWeight: number;
+      totalPackages: number;
+      completedDate: string;
+    }> = {};
+
+    completedOrders.forEach(order => {
+      const route = makeRouteKey(order);
+      const assignedDate = order.assignmentData?.assignedAt || order.createdAt;
+      const coloaderName = order.assignmentData?.assignedColoaderName || 'Unknown';
+      const completedDate = order.assignmentData?.completedAt || new Date().toISOString();
+      
+      if (!pathGroups[route]) {
+        pathGroups[route] = {
+          route,
+          orders: [],
+          assignedDate,
+          coloaderName,
+          totalWeight: 0,
+          totalPackages: 0,
+          completedDate
+        };
+      }
+      
+      pathGroups[route].orders.push(order);
+      pathGroups[route].totalWeight += order.shipmentData?.actualWeight || 0;
+      
+      // Handle totalPackages from both shipmentData (string) and uploadData (number)
+      let packageCount = 0;
+      if (order.uploadData?.totalPackages) {
+        packageCount = order.uploadData.totalPackages;
+      } else if (order.shipmentData?.totalPackages) {
+        packageCount = parseInt(order.shipmentData.totalPackages, 10) || 0;
+      }
+      pathGroups[route].totalPackages += packageCount;
+    });
+
+    return Object.values(pathGroups).sort((a, b) => 
+      new Date(b.completedDate).getTime() - new Date(a.completedDate).getTime()
     );
   };
 
@@ -425,6 +508,45 @@ const AssignColoader = () => {
 
   const makeRouteKey = (form: AddressFormData): RouteKey => {
     return `${getLocationLabel(form, true)} → ${getLocationLabel(form, false)}`;
+  };
+
+  // Helper function to create route segments for multi-leg assignments
+  const createRouteSegments = (order: AddressFormData, legAssignments: any[]) => {
+    if (!legAssignments || legAssignments.length <= 1) return [];
+    
+    const segments = [];
+    const sortedLegs = legAssignments.sort((a, b) => a.legNumber - b.legNumber);
+    
+    for (let i = 0; i < sortedLegs.length; i++) {
+      const currentLeg = sortedLegs[i];
+      const nextLeg = sortedLegs[i + 1];
+      
+      let fromLocation, toLocation;
+      
+      if (i === 0) {
+        // First leg: from origin to intermediate point
+        fromLocation = getLocationLabel(order, true);
+        toLocation = nextLeg ? `${currentLeg.coloaderName} Hub` : getLocationLabel(order, false);
+      } else if (i === sortedLegs.length - 1) {
+        // Last leg: from previous hub to destination
+        fromLocation = `${sortedLegs[i-1].coloaderName} Hub`;
+        toLocation = getLocationLabel(order, false);
+      } else {
+        // Intermediate legs: from previous hub to next hub
+        fromLocation = `${sortedLegs[i-1].coloaderName} Hub`;
+        toLocation = `${currentLeg.coloaderName} Hub`;
+      }
+      
+      segments.push({
+        legNumber: currentLeg.legNumber,
+        fromLocation,
+        toLocation,
+        coloaderName: currentLeg.coloaderName,
+        assignedAt: currentLeg.assignedAt
+      });
+    }
+    
+    return segments;
   };
 
   // Group orders by route (path)
@@ -827,6 +949,120 @@ const AssignColoader = () => {
     }
   };
 
+  // Handle "Assign More" for existing assignments
+  const handleAssignMore = async (order: AddressFormData) => {
+    setSelectedOrder(order);
+    setIsEditMode(true);
+    setIsAssignModalOpen(true);
+    setLoadingColoaders(true);
+    
+    // Set existing assignments for multi-leg assignment
+    if (order.assignmentData?.legAssignments && order.assignmentData.legAssignments.length > 0) {
+      setExistingAssignments(order.assignmentData.legAssignments);
+      setNumberOfLegs(order.assignmentData.totalLegs || 1);
+      setCurrentLeg(order.assignmentData.legAssignments.length + 1); // Next leg
+    } else if (order.assignmentData?.assignedColoader) {
+      // Convert single assignment to multi-leg
+      setExistingAssignments([{
+        legNumber: 1,
+        coloaderId: order.assignmentData.assignedColoader,
+        coloaderName: order.assignmentData.assignedColoaderName || 'Unknown'
+      }]);
+      setNumberOfLegs(2); // Now it will be 2 legs
+      setCurrentLeg(2); // Assigning second leg
+    }
+    
+    try {
+      // Fetch coloaders that match the order's from/to locations
+      const token = localStorage.getItem('adminToken');
+      const response = await fetch('/api/admin/coloaders?limit=1000', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        const allColoaders = result.data || [];
+        
+        // Filter coloaders based on from/to locations
+        const matchingColoaders = allColoaders.filter((coloader: Coloader) => {
+          if (!coloader.isActive) return false;
+          
+          const fromCity = order.originData?.city || order.senderCity || '';
+          const fromState = order.originData?.state || order.senderState || '';
+          const fromPincode = order.originData?.pincode || order.senderPincode || '';
+          
+          const toCity = order.destinationData?.city || order.receiverCity || '';
+          const toState = order.destinationData?.state || order.receiverState || '';
+          const toPincode = order.destinationData?.pincode || order.receiverPincode || '';
+          
+          // Check if coloader serves the from location
+          const mainAddressMatch = coloader.companyAddress && (
+            coloader.companyAddress.city?.toLowerCase().includes(fromCity.toLowerCase()) || 
+            fromCity.toLowerCase().includes(coloader.companyAddress.city?.toLowerCase() || '') ||
+            coloader.companyAddress.state?.toLowerCase().includes(fromState.toLowerCase()) || 
+            fromState.toLowerCase().includes(coloader.companyAddress.state?.toLowerCase() || '') ||
+            String(coloader.companyAddress.pincode || '') === fromPincode
+          );
+          
+          const additionalFromMatch = coloader.fromLocations?.some(location => {
+            const cityMatch = location.city?.toLowerCase().includes(fromCity.toLowerCase()) || 
+                            fromCity.toLowerCase().includes(location.city?.toLowerCase() || '');
+            const stateMatch = location.state?.toLowerCase().includes(fromState.toLowerCase()) || 
+                             fromState.toLowerCase().includes(location.state?.toLowerCase() || '');
+            const pincodeMatch = String(location.pincode || '') === fromPincode;
+            
+            return cityMatch || stateMatch || pincodeMatch;
+          }) || false;
+          
+          const servesFrom = mainAddressMatch || additionalFromMatch;
+          
+          // Check if coloader serves the to location
+          const servesTo = coloader.toLocations?.some(location => {
+            const cityMatch = location.city?.toLowerCase().includes(toCity.toLowerCase()) || 
+                            toCity.toLowerCase().includes(location.city?.toLowerCase() || '');
+            const stateMatch = location.state?.toLowerCase().includes(toState.toLowerCase()) || 
+                             toState.toLowerCase().includes(location.state?.toLowerCase() || '');
+            const pincodeMatch = String(location.pincode || '') === toPincode;
+            
+            return cityMatch || stateMatch || pincodeMatch;
+          }) || false;
+          
+          return servesFrom && servesTo;
+        });
+        
+        setMatchingColoaders(matchingColoaders);
+        
+        if (matchingColoaders.length === 0) {
+          toast({
+            title: "No coloaders found",
+            description: "No coloaders found for the order locations. Try custom search with different pincodes.",
+            variant: "destructive"
+          });
+        } else {
+          toast({
+            title: "Search completed",
+            description: `Found ${matchingColoaders.length} coloader(s) for additional assignment`,
+          });
+        }
+      } else {
+        throw new Error('Failed to fetch coloaders');
+      }
+    } catch (error) {
+      console.error('Error fetching coloaders:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load coloaders",
+        variant: "destructive"
+      });
+      setMatchingColoaders([]);
+    } finally {
+      setLoadingColoaders(false);
+    }
+  };
+
   // Handle assign button click for route (path-level)
   const handleAssignRouteClick = async (routeKey: RouteKey) => {
     const orders = ordersByRoute[routeKey] || [];
@@ -867,7 +1103,7 @@ const AssignColoader = () => {
       const toCity = first.destinationData?.city || first.receiverCity || '';
       const toState = first.destinationData?.state || first.receiverState || '';
 
-      const matching = allColoaders.filter((coloader: any) => {
+      const matching = allColoaders.filter((coloader: Coloader) => {
         if (!coloader.isActive) return false;
         const fromPin = first.originData?.pincode || first.senderPincode || '';
         const toPin = first.destinationData?.pincode || first.receiverPincode || '';
@@ -879,7 +1115,7 @@ const AssignColoader = () => {
           fromState.toLowerCase().includes(coloader.companyAddress.state?.toLowerCase() || '') ||
           String(coloader.companyAddress.pincode || '') === String(fromPin)
         );
-        const additionalFrom = coloader.fromLocations?.some((loc: any) => {
+        const additionalFrom = coloader.fromLocations?.some((loc) => {
           const cityMatch = loc.city?.toLowerCase().includes(fromCity.toLowerCase()) || fromCity.toLowerCase().includes(loc.city?.toLowerCase() || '');
           const stateMatch = loc.state?.toLowerCase().includes(fromState.toLowerCase()) || fromState.toLowerCase().includes(loc.state?.toLowerCase() || '');
           const pinMatch = String(loc.pincode || '') === String(fromPin);
@@ -887,7 +1123,7 @@ const AssignColoader = () => {
         }) || false;
         const servesFrom = mainAddressFrom || additionalFrom;
 
-        const servesTo = coloader.toLocations?.some((loc: any) => {
+        const servesTo = coloader.toLocations?.some((loc) => {
           const cityMatch = loc.city?.toLowerCase().includes(toCity.toLowerCase()) || toCity.toLowerCase().includes(loc.city?.toLowerCase() || '');
           const stateMatch = loc.state?.toLowerCase().includes(toState.toLowerCase()) || toState.toLowerCase().includes(loc.state?.toLowerCase() || '');
           const pinMatch = String(loc.pincode || '') === String(toPin);
@@ -1027,7 +1263,13 @@ const AssignColoader = () => {
   };
 
   // Handle removing all assignments for a path
-  const handleRemovePathAssignments = async (pathGroup: any) => {
+  const handleRemovePathAssignments = async (pathGroup: {
+    route: string;
+    orders: AddressFormData[];
+    assignedDate: string;
+    coloaderName: string;
+    totalWeight: number;
+  }) => {
     try {
       const token = localStorage.getItem('adminToken');
       let successCount = 0;
@@ -1066,6 +1308,153 @@ const AssignColoader = () => {
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Failed to remove path assignments",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle marking individual order assignment as complete
+  const handleCompleteAssignment = async (order: AddressFormData) => {
+    try {
+      const token = localStorage.getItem('adminToken');
+      console.log('🔑 Token exists:', !!token);
+      console.log('🔑 Token length:', token?.length || 0);
+      
+      if (!token) {
+        throw new Error('No admin token found. Please log in again.');
+      }
+      
+      console.log(`🔄 Completing assignment for order: ${order._id}`, order);
+      
+      if (!order._id) {
+        console.error(`❌ Order missing ID:`, order);
+        throw new Error('Order ID is missing');
+      }
+      
+      // Check if order has assignment data
+      if (!order.assignmentData || (!order.assignmentData.assignedColoader && !order.assignmentData.legAssignments?.length)) {
+        console.error(`❌ Order ${order._id} is not assigned to any coloader:`, order.assignmentData);
+        throw new Error('Order is not assigned to any coloader');
+      }
+      
+      const response = await fetch('/api/admin/complete-assignment', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          orderId: order._id,
+          completedAt: new Date().toISOString()
+        })
+      });
+      
+      if (response.ok) {
+        console.log(`✅ Order ${order._id} completed successfully`);
+        toast({
+          title: "Assignment Completed",
+          description: `Order ${order.consignmentNumber || order._id} has been marked as complete`,
+        });
+        // Refresh the data to reflect the changes
+        await fetchAddressForms(currentPage);
+      } else {
+        const errorData = await response.json();
+        console.error(`❌ Failed to complete order ${order._id}:`, errorData);
+        throw new Error(errorData.error || `Failed to complete assignment: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('Error completing assignment:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to complete assignment",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle completing a path (move to completed section)
+  const handleCompletePath = async (pathGroup: {
+    route: string;
+    orders: AddressFormData[];
+    assignedDate: string;
+    coloaderName: string;
+    totalWeight: number;
+  }) => {
+    try {
+      const token = localStorage.getItem('adminToken');
+      console.log('🔑 Token exists:', !!token);
+      console.log('🔑 Token length:', token?.length || 0);
+      
+      if (!token) {
+        throw new Error('No admin token found. Please log in again.');
+      }
+      
+      let successCount = 0;
+      
+      // Update each order in the path to mark as completed
+      for (const order of pathGroup.orders) {
+        console.log(`🔄 Processing order: ${order._id}`, order);
+        
+        if (!order._id) {
+          console.error(`❌ Order missing ID:`, order);
+          continue;
+        }
+        
+        // Check if order has assignment data
+        if (!order.assignmentData || !order.assignmentData.assignedColoader) {
+          console.error(`❌ Order ${order._id} is not assigned to any coloader:`, order.assignmentData);
+          continue;
+        }
+        
+        try {
+          const response = await fetch('/api/admin/complete-assignment', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              orderId: order._id,
+              completedAt: new Date().toISOString()
+            })
+          });
+          
+          if (response.ok) {
+            successCount++;
+            console.log(`✅ Order ${order._id} completed successfully`);
+          } else {
+            const errorData = await response.json();
+            console.error(`❌ Failed to complete order ${order._id}:`, errorData);
+            console.error(`❌ Full error response:`, {
+              status: response.status,
+              statusText: response.statusText,
+              error: errorData
+            });
+            if (errorData.details) {
+              console.error(`❌ Validation details:`, errorData.details);
+            }
+          }
+        } catch (orderError) {
+          console.error(`❌ Network error completing order ${order._id}:`, orderError);
+        }
+      }
+
+      if (successCount > 0) {
+        // Refresh the data to reflect the changes
+        await fetchAddressForms(currentPage);
+        
+        toast({
+          title: "Path Completed",
+          description: `Path "${pathGroup.route}" has been completed and moved to completed section`,
+        });
+      } else {
+        throw new Error(`Failed to complete any orders in this path. ${pathGroup.orders.length} orders attempted, 0 succeeded.`);
+      }
+    } catch (error) {
+      console.error('Error completing path:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to complete path",
         variant: "destructive",
       });
     }
@@ -1113,13 +1502,22 @@ const AssignColoader = () => {
           toast({ title: 'Error', description: 'No order selected', variant: 'destructive' });
           return;
         }
+        
+        // For multi-leg assignments, update the total legs count
+        let finalTotalLegs = numberOfLegs;
+        if (isEditMode && existingAssignments.length > 0) {
+          // If we're adding to existing assignments, update total legs
+          finalTotalLegs = Math.max(numberOfLegs, currentLeg);
+        }
+        
         const requestBody = {
           orderId: selectedOrder._id,
           coloaderId: coloader._id,
           legNumber: currentLeg,
-          totalLegs: numberOfLegs,
+          totalLegs: finalTotalLegs,
           isEditMode: isEditMode
         };
+        
         const response = await fetch('/api/admin/assign-coloader', {
           method: 'POST',
           headers: {
@@ -1128,11 +1526,19 @@ const AssignColoader = () => {
           },
           body: JSON.stringify(requestBody)
         });
+        
         if (!response.ok) {
           const errorText = await response.text();
           throw new Error(`Failed to assign coloader: ${response.status} - ${errorText}`);
         }
-        toast({ title: 'Success', description: 'Coloader assigned successfully!' });
+        
+        const result = await response.json();
+        const isComplete = currentLeg === finalTotalLegs;
+        
+        toast({ 
+          title: 'Success', 
+          description: `Coloader assigned successfully! ${isComplete ? 'Assignment complete.' : `Leg ${currentLeg} of ${finalTotalLegs} assigned.`}` 
+        });
       }
 
       // Refresh and reset
@@ -1279,6 +1685,16 @@ const AssignColoader = () => {
               }`}
             >
               Assigned Paths
+            </button>
+            <button
+              onClick={() => setActiveTab('completed')}
+              className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'completed'
+                  ? 'bg-white text-blue-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              Completed Assigned Paths
             </button>
           </div>
         </div>
@@ -1467,7 +1883,7 @@ const AssignColoader = () => {
                             <div className="flex items-center gap-6 text-sm text-gray-600">
                               <span className="flex items-center gap-1">
                                 <Package className="h-3 w-3" />
-                                {pathGroup.orders.length} orders
+                                {pathGroup.totalPackages} packages
                               </span>
                               <span className="flex items-center gap-1">
                                 <Weight className="h-3 w-3" />
@@ -1482,9 +1898,45 @@ const AssignColoader = () => {
                               <span className="text-sm text-gray-600">
                                 Assigned to: <span className="font-medium text-blue-600">{pathGroup.coloaderName}</span>
                               </span>
+                              {/* Show detailed leg assignments if available */}
+                              {pathGroup.orders[0]?.assignmentData?.legAssignments && pathGroup.orders[0].assignmentData.legAssignments.length > 1 && (
+                                <div className="mt-2 space-y-1">
+                                  <div className="text-xs font-medium text-gray-700">Multi-leg Route:</div>
+                                  {createRouteSegments(pathGroup.orders[0], pathGroup.orders[0].assignmentData.legAssignments).map((segment, index) => (
+                                    <div key={segment.legNumber} className="flex items-center gap-2 text-xs bg-gray-50 p-2 rounded border-l-2 border-blue-200">
+                                      <div className="w-5 h-5 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center text-xs font-medium">
+                                        {segment.legNumber}
+                                      </div>
+                                      <div className="flex-1">
+                                        <div className="font-medium text-gray-800">{segment.coloaderName}</div>
+                                        <div className="text-gray-600 text-xs">
+                                          <span className="font-medium">{segment.fromLocation}</span>
+                                          <span className="mx-1">→</span>
+                                          <span className="font-medium">{segment.toLocation}</span>
+                                        </div>
+                                        <div className="text-gray-500">
+                                          Leg {segment.legNumber} • {new Date(segment.assignedAt).toLocaleDateString()}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAssignMore(pathGroup.orders[0]);
+                              }}
+                              className="text-xs rounded-lg hover:bg-green-50 hover:border-green-200"
+                            >
+                              <UserPlus className="h-3 w-3 mr-1" />
+                              Assign More
+                            </Button>
                             <Button
                               size="sm"
                               variant="outline"
@@ -1496,6 +1948,18 @@ const AssignColoader = () => {
                             >
                               <Edit className="h-3 w-3 mr-1" />
                               Edit
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCompletePath(pathGroup);
+                              }}
+                              className="text-xs rounded-lg hover:bg-green-50 hover:border-green-200 text-green-600"
+                            >
+                              <Package className="h-3 w-3 mr-1" />
+                              Complete
                             </Button>
                             <div className="p-1 rounded hover:bg-gray-100">
                               <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${
@@ -1530,7 +1994,7 @@ const AssignColoader = () => {
                                           </span>
                                           <span className="flex items-center gap-1">
                                             <Package className="h-3 w-3" />
-                                            {order.shipmentData?.totalPackages || 0} packages
+                                            {order.uploadData?.totalPackages || parseInt(order.shipmentData?.totalPackages || '0', 10) || 0} packages
                                           </span>
                                         </div>
                                         <div className="mt-2">
@@ -1544,17 +2008,52 @@ const AssignColoader = () => {
                                             {order.assignmentData?.status || 'assigned'}
                                           </span>
                                         </div>
+                                        {/* Show detailed leg assignments for individual orders */}
+                                        {order.assignmentData?.legAssignments && order.assignmentData.legAssignments.length > 1 && (
+                                          <div className="mt-2 space-y-1">
+                                            <div className="text-xs font-medium text-gray-600">Route Details:</div>
+                                            {createRouteSegments(order, order.assignmentData.legAssignments).map((segment, index) => (
+                                              <div key={segment.legNumber} className="flex items-center gap-2 text-xs bg-blue-50 p-2 rounded border-l-2 border-blue-200">
+                                                <div className="w-4 h-4 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs font-medium">
+                                                  {segment.legNumber}
+                                                </div>
+                                                <div className="flex-1">
+                                                  <div className="font-medium text-gray-800">{segment.coloaderName}</div>
+                                                  <div className="text-gray-600 text-xs">
+                                                    <span className="font-medium">{segment.fromLocation}</span>
+                                                    <span className="mx-1">→</span>
+                                                    <span className="font-medium">{segment.toLocation}</span>
+                                                  </div>
+                                                  <div className="text-gray-500">
+                                                    Leg {segment.legNumber} • {new Date(segment.assignedAt).toLocaleDateString()}
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => handleEditAssignment(order)}
-                                      className="text-xs rounded-lg hover:bg-blue-50 hover:border-blue-200"
-                                    >
-                                      <Edit className="h-3 w-3 mr-1" />
-                                      Edit
-                                    </Button>
+                                    <div className="flex gap-1">
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleEditAssignment(order)}
+                                        className="text-xs rounded-lg hover:bg-blue-50 hover:border-blue-200"
+                                      >
+                                        <Edit className="h-3 w-3 mr-1" />
+                                        Edit
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => handleCompleteAssignment(order)}
+                                        className="text-xs rounded-lg hover:bg-green-50 hover:border-green-200 text-green-600"
+                                      >
+                                        <Package className="h-3 w-3 mr-1" />
+                                        Complete
+                                      </Button>
+                                    </div>
                                   </div>
                                 </div>
                               ))}
@@ -1571,6 +2070,80 @@ const AssignColoader = () => {
                         <MapPin className="h-6 w-6 text-gray-400" />
                       </div>
                       <p>No assigned paths found</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Completed Assigned Paths Tab */}
+          {activeTab === 'completed' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-1 h-6 bg-green-500 rounded-full"></div>
+                  <h3 className="text-lg font-semibold text-gray-800">Completed Assigned Paths ({getCompletedPaths().length})</h3>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => fetchAddressForms(currentPage)} className="rounded-lg">
+                  <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+              </div>
+
+              {loading ? (
+                <div className="text-center py-12 text-gray-500">
+                  <RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />
+                  Loading completed paths...
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {getCompletedPaths().map((pathGroup) => (
+                    <div key={pathGroup.route} className="bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow">
+                      {/* Path Header */}
+                      <div className="p-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <div className="p-1 bg-green-50 rounded">
+                                <MapPin className="h-4 w-4 text-green-600" />
+                              </div>
+                              <span className="font-medium text-gray-800">{pathGroup.route}</span>
+                              <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">
+                                Completed
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-6 text-sm text-gray-600">
+                              <span className="flex items-center gap-1">
+                                <Package className="h-3 w-3" />
+                                {pathGroup.totalPackages} packages
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Weight className="h-3 w-3" />
+                                {pathGroup.totalWeight} kg
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Calendar className="h-3 w-3" />
+                                Completed: {new Date(pathGroup.completedDate).toLocaleDateString()}
+                              </span>
+                            </div>
+                            <div className="mt-2">
+                              <span className="text-sm text-gray-600">
+                                Assigned to: <span className="font-medium text-blue-600">{pathGroup.coloaderName}</span>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {getCompletedPaths().length === 0 && (
+                    <div className="text-center py-12 text-gray-500">
+                      <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <Package className="h-6 w-6 text-gray-400" />
+                      </div>
+                      <p>No completed paths found</p>
                     </div>
                   )}
                 </div>
@@ -1700,7 +2273,7 @@ const AssignColoader = () => {
             <div className="mb-3 p-2 bg-green-50 rounded-lg">
               <div className="flex items-center justify-between mb-1">
                 <h3 className="text-sm font-medium text-green-800">
-                  {isEditMode ? 'Current Assignment' : 'Assigned Coloader'}
+                  {isEditMode ? 'Assignment Progress' : 'Assigned Coloader'}
                 </h3>
                 {isEditMode && existingAssignments.length > 0 && (
                   <Button
@@ -1714,15 +2287,29 @@ const AssignColoader = () => {
                   </Button>
                 )}
               </div>
+              
+              {/* Progress indicator */}
+              {isEditMode && existingAssignments.length > 0 && (
+                <div className="mb-2 text-xs text-gray-600">
+                  Leg {existingAssignments.length} of {numberOfLegs} assigned
+                  {currentLeg > existingAssignments.length && (
+                    <span className="ml-2 text-blue-600 font-medium">
+                      (Assigning leg {currentLeg})
+                    </span>
+                  )}
+                </div>
+              )}
+              
               <div className="space-y-0.5">
                 {isEditMode ? (
                   existingAssignments.map((assignment, index) => (
                     <div key={index} className="flex items-center justify-between bg-white p-1.5 rounded shadow-md border-0 hover:shadow-lg transition-all duration-200">
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 bg-blue-500 text-white rounded-full flex items-center justify-center text-xs font-medium border-0">
-                          ✓
+                          {assignment.legNumber}
                         </div>
                         <span className="text-sm font-medium leading-tight">{assignment.coloaderName}</span>
+                        <span className="text-xs text-gray-500">(Leg {assignment.legNumber})</span>
                       </div>
                       <Button
                         size="sm"
@@ -1747,6 +2334,20 @@ const AssignColoader = () => {
                   ))
                 )}
               </div>
+              
+              {/* Continue assignment message */}
+              {isEditMode && currentLeg <= numberOfLegs && (
+                <div className="mt-2 p-2 bg-blue-50 rounded text-xs text-blue-700">
+                  <strong>Continue Assignment:</strong> Select a coloader for leg {currentLeg} of {numberOfLegs}
+                </div>
+              )}
+              
+              {/* Complete assignment message */}
+              {isEditMode && existingAssignments.length > 0 && currentLeg > numberOfLegs && (
+                <div className="mt-2 p-2 bg-green-50 rounded text-xs text-green-700">
+                  <strong>All Legs Assigned:</strong> You can now mark this assignment as complete
+                </div>
+              )}
             </div>
           )}
 
@@ -1837,21 +2438,50 @@ const AssignColoader = () => {
                Cancel
              </Button>
              {isEditMode && (
-               <Button 
-                 onClick={() => {
-                   setIsAssignModalOpen(false);
-                   setIsEditMode(false);
-                   setExistingAssignments([]);
-                   setAssignedColoaders([]);
-                   setCurrentLeg(1);
-                   setNumberOfLegs(1);
-                   setCustomFromLocation('');
-                   setCustomToLocation('');
-                   fetchAddressForms(currentPage);
-                 }}
-               >
-                 Done
-               </Button>
+               <>
+                 {currentLeg <= numberOfLegs && (
+                   <Button 
+                     variant="outline"
+                     onClick={() => {
+                       // Add another leg
+                       setNumberOfLegs(numberOfLegs + 1);
+                       setCurrentLeg(numberOfLegs + 1);
+                       toast({
+                         title: "Added Leg",
+                         description: `Now assigning leg ${numberOfLegs + 1}`,
+                       });
+                     }}
+                     className="mr-2"
+                   >
+                     Add Another Leg
+                   </Button>
+                 )}
+                 {selectedOrder && existingAssignments.length > 0 && currentLeg > numberOfLegs && (
+                   <Button 
+                     variant="outline"
+                     onClick={() => handleCompleteAssignment(selectedOrder)}
+                     className="mr-2 bg-green-50 hover:bg-green-100 text-green-700 border-green-200"
+                   >
+                     <Package className="h-3 w-3 mr-1" />
+                     Mark as Complete
+                   </Button>
+                 )}
+                 <Button 
+                   onClick={() => {
+                     setIsAssignModalOpen(false);
+                     setIsEditMode(false);
+                     setExistingAssignments([]);
+                     setAssignedColoaders([]);
+                     setCurrentLeg(1);
+                     setNumberOfLegs(1);
+                     setCustomFromLocation('');
+                     setCustomToLocation('');
+                     fetchAddressForms(currentPage);
+                   }}
+                 >
+                   Done
+                 </Button>
+               </>
              )}
            </DialogFooter>
         </DialogContent>

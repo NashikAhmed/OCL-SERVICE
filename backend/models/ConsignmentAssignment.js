@@ -1,10 +1,10 @@
 import mongoose from "mongoose";
 
 const consignmentAssignmentSchema = new mongoose.Schema({
-  // Assignment type: 'corporate', 'office_user'
+  // Assignment type: 'corporate', 'office_user', 'courier_boy', 'medicine'
   assignmentType: {
     type: String,
-    enum: ['corporate', 'office_user'],
+    enum: ['corporate', 'office_user', 'courier_boy', 'medicine'],
     required: true,
     default: 'corporate'
   },
@@ -22,6 +22,22 @@ const consignmentAssignmentSchema = new mongoose.Schema({
     ref: 'OfficeUser',
     required: function() {
       return this.assignmentType === 'office_user';
+    }
+  },
+  // For courier boy assignments
+  courierBoyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CourierBoy',
+    required: function() {
+      return this.assignmentType === 'courier_boy';
+    }
+  },
+  // For medicine user assignments
+  medicineUserId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'MedicineUser',
+    required: function() {
+      return this.assignmentType === 'medicine';
     }
   },
   // Display name for the assigned entity
@@ -83,6 +99,8 @@ const consignmentAssignmentSchema = new mongoose.Schema({
 consignmentAssignmentSchema.index({ assignmentType: 1 });
 consignmentAssignmentSchema.index({ corporateId: 1 });
 consignmentAssignmentSchema.index({ officeUserId: 1 });
+consignmentAssignmentSchema.index({ courierBoyId: 1 });
+consignmentAssignmentSchema.index({ medicineUserId: 1 });
 consignmentAssignmentSchema.index({ startNumber: 1, endNumber: 1 });
 consignmentAssignmentSchema.index({ assignedBy: 1 });
 consignmentAssignmentSchema.index({ isActive: 1 });
@@ -137,6 +155,10 @@ consignmentAssignmentSchema.statics.getNextConsignmentNumber = async function(as
     query.corporateId = entityId;
   } else if (assignmentType === 'office_user') {
     query.officeUserId = entityId;
+  } else if (assignmentType === 'courier_boy') {
+    query.courierBoyId = entityId;
+  } else if (assignmentType === 'medicine') {
+    query.medicineUserId = entityId;
   }
   
   const assignments = await this.find(query).sort({ startNumber: 1 });
@@ -153,7 +175,8 @@ consignmentAssignmentSchema.statics.getNextConsignmentNumber = async function(as
   
   const usedNumberSet = new Set(usedNumbers.map(u => u.consignmentNumber));
   
-  // Check each assignment range for available numbers
+  // Find the next sequential number starting from the first assignment
+  // This ensures we use numbers in order: first assignment range, then second, etc.
   for (const assignment of assignments) {
     for (let num = assignment.startNumber; num <= assignment.endNumber; num++) {
       if (!usedNumberSet.has(num)) {
@@ -186,10 +209,10 @@ export default mongoose.model("ConsignmentAssignment", consignmentAssignmentSche
 
 // Consignment Usage Model to track which numbers are used
 const consignmentUsageSchema = new mongoose.Schema({
-  // Assignment type: 'corporate', 'office_user'
+  // Assignment type: 'corporate', 'office_user', 'courier_boy', 'medicine'
   assignmentType: {
     type: String,
-    enum: ['corporate', 'office_user'],
+    enum: ['corporate', 'office_user', 'courier_boy', 'medicine'],
     required: true,
     default: 'corporate'
   },
@@ -212,6 +235,22 @@ const consignmentUsageSchema = new mongoose.Schema({
     ref: 'OfficeUser',
     required: function() {
       return this.assignmentType === 'office_user';
+    }
+  },
+  // For courier boy usage
+  courierBoyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CourierBoy',
+    required: function() {
+      return this.assignmentType === 'courier_boy';
+    }
+  },
+  // For medicine user usage
+  medicineUserId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'MedicineUser',
+    required: function() {
+      return this.assignmentType === 'medicine';
     }
   },
   consignmentNumber: {
@@ -257,6 +296,16 @@ const consignmentUsageSchema = new mongoose.Schema({
   totalAmount: {
     type: Number,
     default: 0
+  },
+  // Assigned courier boy for handling this shipment (for corporate shipments)
+  assignedCourierBoyId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CourierBoy',
+    default: null
+  },
+  assignedCourierBoyAt: {
+    type: Date,
+    default: null
   }
 }, {
   timestamps: true,
@@ -267,11 +316,14 @@ const consignmentUsageSchema = new mongoose.Schema({
 consignmentUsageSchema.index({ assignmentType: 1, entityId: 1, consignmentNumber: 1 }, { unique: true });
 consignmentUsageSchema.index({ corporateId: 1, consignmentNumber: 1 }, { unique: true });
 consignmentUsageSchema.index({ officeUserId: 1 });
+consignmentUsageSchema.index({ courierBoyId: 1 });
+consignmentUsageSchema.index({ medicineUserId: 1 });
 consignmentUsageSchema.index({ bookingReference: 1 });
 consignmentUsageSchema.index({ usedAt: -1 });
 consignmentUsageSchema.index({ paymentStatus: 1 });
 consignmentUsageSchema.index({ corporateId: 1, paymentStatus: 1 });
 consignmentUsageSchema.index({ invoiceId: 1 });
+consignmentUsageSchema.index({ assignedCourierBoyId: 1 });
 
 // Static method to find unpaid shipments for any entity
 consignmentUsageSchema.statics.findUnpaidByEntity = function(assignmentType, entityId) {

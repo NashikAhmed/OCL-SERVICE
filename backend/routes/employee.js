@@ -1,6 +1,7 @@
 import express from 'express';
 import Employee from '../models/Employee.js';
 import { authenticateAdmin } from '../middleware/auth.js';
+import S3Service from '../services/s3Service.js';
 import path from 'path';
 import multer from 'multer';
 import fs from 'fs';
@@ -9,16 +10,16 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Ensure employee documents directory exists
-const employeeDocsDir = path.join(__dirname, '../uploads/employee-docs');
-if (!fs.existsSync(employeeDocsDir)) {
-  fs.mkdirSync(employeeDocsDir, { recursive: true });
+// Ensure temp directory exists
+const tempDir = path.join(__dirname, '../temp');
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir, { recursive: true });
 }
 
-// Configure multer for employee document uploads
+// Configure multer for employee document uploads (temporary storage for S3 upload)
 const documentStorage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, employeeDocsDir);
+    cb(null, tempDir);
   },
   filename: function (req, file, cb) {
     // Generate unique filename with timestamp
@@ -114,28 +115,40 @@ router.post('/register', authenticateAdmin, documentUpload.fields([
       });
     }
     
-    // Extract file paths from uploaded files
+    // Upload files to S3 and extract URLs
     const filePaths = {};
     if (req.files) {
-      if (req.files.photo && req.files.photo[0]) {
-        filePaths.photoFilePath = `/uploads/employee-docs/${req.files.photo[0].filename}`;
-      }
-      if (req.files.cv && req.files.cv[0]) {
-        filePaths.cvFilePath = `/uploads/employee-docs/${req.files.cv[0].filename}`;
-      }
-      if (req.files.document && req.files.document[0]) {
-        filePaths.documentFilePath = `/uploads/employee-docs/${req.files.document[0].filename}`;
-      }
-      if (req.files.panCard && req.files.panCard[0]) {
-        filePaths.panCardFilePath = `/uploads/employee-docs/${req.files.panCard[0].filename}`;
-      }
-      if (req.files.aadharCard && req.files.aadharCard[0]) {
-        filePaths.aadharCardFilePath = `/uploads/employee-docs/${req.files.aadharCard[0].filename}`;
-      }
-      if (req.files.otherDocuments && req.files.otherDocuments.length > 0) {
-        filePaths.otherDocumentsPaths = req.files.otherDocuments.map(file => 
-          `/uploads/employee-docs/${file.filename}`
-        );
+      try {
+        if (req.files.photo && req.files.photo[0]) {
+          const uploadResult = await S3Service.uploadFile(req.files.photo[0], 'uploads/employee-docs');
+          filePaths.photoFilePath = uploadResult.url;
+        }
+        if (req.files.cv && req.files.cv[0]) {
+          const uploadResult = await S3Service.uploadFile(req.files.cv[0], 'uploads/employee-docs');
+          filePaths.cvFilePath = uploadResult.url;
+        }
+        if (req.files.document && req.files.document[0]) {
+          const uploadResult = await S3Service.uploadFile(req.files.document[0], 'uploads/employee-docs');
+          filePaths.documentFilePath = uploadResult.url;
+        }
+        if (req.files.panCard && req.files.panCard[0]) {
+          const uploadResult = await S3Service.uploadFile(req.files.panCard[0], 'uploads/employee-docs');
+          filePaths.panCardFilePath = uploadResult.url;
+        }
+        if (req.files.aadharCard && req.files.aadharCard[0]) {
+          const uploadResult = await S3Service.uploadFile(req.files.aadharCard[0], 'uploads/employee-docs');
+          filePaths.aadharCardFilePath = uploadResult.url;
+        }
+        if (req.files.otherDocuments && req.files.otherDocuments.length > 0) {
+          const uploadResult = await S3Service.uploadMultipleFiles(req.files.otherDocuments, 'uploads/employee-docs');
+          filePaths.otherDocumentsPaths = uploadResult.files.map(file => file.url);
+        }
+      } catch (uploadError) {
+        console.error('Error uploading employee documents to S3:', uploadError);
+        return res.status(500).json({
+          error: 'Failed to upload documents to S3',
+          message: uploadError.message
+        });
       }
     }
     
@@ -568,22 +581,35 @@ router.put('/:id', authenticateAdmin, documentUpload.fields([
       employee.primeMobileNumbers = primeMobileNumbers;
     }
     
-    // Update file paths if new files were uploaded
+    // Update file paths if new files were uploaded to S3
     if (req.files) {
-      if (req.files.photo && req.files.photo[0]) {
-        employee.photoFilePath = `/uploads/employee-docs/${req.files.photo[0].filename}`;
-      }
-      if (req.files.cv && req.files.cv[0]) {
-        employee.cvFilePath = `/uploads/employee-docs/${req.files.cv[0].filename}`;
-      }
-      if (req.files.document && req.files.document[0]) {
-        employee.documentFilePath = `/uploads/employee-docs/${req.files.document[0].filename}`;
-      }
-      if (req.files.panCard && req.files.panCard[0]) {
-        employee.panCardFilePath = `/uploads/employee-docs/${req.files.panCard[0].filename}`;
-      }
-      if (req.files.aadharCard && req.files.aadharCard[0]) {
-        employee.aadharCardFilePath = `/uploads/employee-docs/${req.files.aadharCard[0].filename}`;
+      try {
+        if (req.files.photo && req.files.photo[0]) {
+          const uploadResult = await S3Service.uploadFile(req.files.photo[0], 'uploads/employee-docs');
+          employee.photoFilePath = uploadResult.url;
+        }
+        if (req.files.cv && req.files.cv[0]) {
+          const uploadResult = await S3Service.uploadFile(req.files.cv[0], 'uploads/employee-docs');
+          employee.cvFilePath = uploadResult.url;
+        }
+        if (req.files.document && req.files.document[0]) {
+          const uploadResult = await S3Service.uploadFile(req.files.document[0], 'uploads/employee-docs');
+          employee.documentFilePath = uploadResult.url;
+        }
+        if (req.files.panCard && req.files.panCard[0]) {
+          const uploadResult = await S3Service.uploadFile(req.files.panCard[0], 'uploads/employee-docs');
+          employee.panCardFilePath = uploadResult.url;
+        }
+        if (req.files.aadharCard && req.files.aadharCard[0]) {
+          const uploadResult = await S3Service.uploadFile(req.files.aadharCard[0], 'uploads/employee-docs');
+          employee.aadharCardFilePath = uploadResult.url;
+        }
+      } catch (uploadError) {
+        console.error('Error uploading employee documents to S3:', uploadError);
+        return res.status(500).json({
+          error: 'Failed to upload documents to S3',
+          message: uploadError.message
+        });
       }
     }
     

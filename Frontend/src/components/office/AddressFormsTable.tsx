@@ -480,7 +480,7 @@ const AddressFormsTable = () => {
                                         <div className="space-y-1">
                                           <div><span className="font-medium">Packages:</span> {form.uploadData.totalPackages}</div>
                                           <div><span className="font-medium">Content:</span> {form.uploadData.contentDescription}</div>
-                                          {form.uploadData.invoiceNumber && <div><span className="font-medium">Invoice:</span> {form.uploadData.invoiceNumber}</div>}
+                                          {form.consignmentNumber && <div><span className="font-medium">Consignment:</span> {form.consignmentNumber}</div>}
                                           {form.uploadData.invoiceValue && <div><span className="font-medium">Value:</span> ₹{form.uploadData.invoiceValue}</div>}
                                           {form.uploadData.eWaybillNumber && <div><span className="font-medium">eWaybill:</span> {form.uploadData.eWaybillNumber}</div>}
                                         </div>

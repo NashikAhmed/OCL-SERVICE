@@ -280,6 +280,7 @@ const AdminManagement = () => {
           userManagement: false,
           pincodeManagement: false,
           addressForms: false,
+          corporateRegistration: false,
           reports: false,
           settings: false
         });
@@ -378,7 +379,7 @@ const AdminManagement = () => {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">Admin Management</h2>
+          <h2 style={{ fontWeight: '500', fontSize: '32px', color:'black' }} className="admin-heading text-gray-800">Admin Management</h2>
           <p className="text-gray-600">Manage admin roles and permissions</p>
         </div>
         <div className="flex space-x-2">

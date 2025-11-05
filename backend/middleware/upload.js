@@ -1,25 +1,21 @@
 import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Configure storage
+// Ensure temp directory exists
+const tempDir = path.join(__dirname, '../temp');
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir, { recursive: true });
+}
+
+// Configure storage for temporary files (will be uploaded to S3)
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    let uploadPath = '';
-    
-    // Determine upload path based on file type
-    if (file.fieldname === 'packageImages') {
-      uploadPath = path.join(__dirname, '../uploads/screenshots/package-images');
-    } else if (file.fieldname === 'invoiceImages') {
-      uploadPath = path.join(__dirname, '../uploads/screenshots/invoice-images');
-    } else {
-      uploadPath = path.join(__dirname, '../uploads/screenshots');
-    }
-    
-    cb(null, uploadPath);
+    cb(null, tempDir);
   },
   filename: function (req, file, cb) {
     // Generate unique filename with timestamp
@@ -30,13 +26,13 @@ const storage = multer.diskStorage({
   }
 });
 
-// File filter to only allow images
+// File filter to allow images and PDFs
 const fileFilter = (req, file, cb) => {
-  // Check if file is an image
-  if (file.mimetype.startsWith('image/')) {
+  // Check if file is an image or PDF
+  if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
     cb(null, true);
   } else {
-    cb(new Error('Only image files are allowed!'), false);
+    cb(new Error('Only image and PDF files are allowed!'), false);
   }
 };
 
@@ -85,10 +81,10 @@ export const handleUploadError = (err, req, res, next) => {
     }
   }
   
-  if (err.message === 'Only image files are allowed!') {
+  if (err.message === 'Only image and PDF files are allowed!' || err.message === 'Only image files are allowed!') {
     return res.status(400).json({
       error: 'Invalid file type',
-      message: 'Only image files are allowed'
+      message: 'Only image and PDF files are allowed'
     });
   }
   
